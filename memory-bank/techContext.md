@@ -4,25 +4,19 @@
 
 ### Required Software
 - Python 3.8+
-- Node.js 16+
 - Git
+- Virtual Environment Tools
 
 ### Key Dependencies
 
 #### Python Packages
-- FastAPI: Web framework
-- Trafilatura: Web crawling and content extraction
+- MCP SDK (v1.3.0.dev0): Core MCP functionality
 - OpenAI: Embeddings generation
 - Supabase: Database client
-- uvicorn: ASGI server
-- pydantic: Data validation
+- Trafilatura: Web crawling and content extraction
 - httpx: HTTP client
 - beautifulsoup4: HTML parsing
-
-#### Node.js Packages
-- @modelcontextprotocol/sdk: MCP server implementation
-- typescript: Programming language
-- supabase-js: Supabase client
+- pydantic: Data validation
 
 ### Environment Variables
 ```
@@ -47,20 +41,76 @@ CRAWLER_RATE_LIMIT=100
 - Used for generating embeddings
 
 ## Development Workflow
-1. Set up Python virtual environment
-2. Install Python dependencies
-3. Install Node.js dependencies
-4. Configure environment variables
-5. Run FastAPI development server
-6. Run MCP server
+1. Set up Python virtual environment:
+   ```bash
+   python -m venv mcp/.venv
+   .venv\Scripts\activate  # Windows
+   ```
+
+2. Install dependencies:
+   ```bash
+   pip install "mcp>=1.3.0"
+   pip install -r requirements.txt
+   ```
+
+3. Configure environment variables
+4. Test MCP server integration
+5. Verify service functionality
 
 ## Testing
 - Initial test site: https://developer.bill.com/reference/api-reference-overview
 - Test crawling and extraction
 - Validate search functionality
 - Verify MCP tool integration
+- Test progress reporting
 
 ## Deployment
-- FastAPI server runs locally
 - Supabase hosted service
-- MCP server runs as local process
+- MCP server runs through Python/FastMCP in Cline
+- Configuration through Cline MCP settings
+
+## Virtual Environment Setup
+- Location: mcp/.venv
+- Python version: 3.8+
+- Windows-specific paths
+- Package isolation
+- Dependency management
+
+## Package Management
+- MCP SDK from official repository
+- Direct service integration
+- Version compatibility
+- Windows considerations
+- Module resolution
+
+## Performance Considerations
+- Direct service calls
+- Async operations
+- Resource management
+- Error handling
+- Progress reporting
+
+## Integration Challenges
+1. Service Migration:
+   - Moving services to MCP server
+   - Maintaining functionality
+   - Error handling
+   - Progress reporting
+
+2. Windows Specifics:
+   - Path separators
+   - Script extensions
+   - Permission handling
+   - Virtual environment activation
+
+3. Module Resolution:
+   - Package locations
+   - Import paths
+   - Version conflicts
+   - Dependency management
+
+## Documentation Resources
+- MCP SDK Documentation
+- Python Package Index
+- Windows Setup Notes
+- Virtual Environment Guides

@@ -1,132 +1,88 @@
 # Active Development Context
 
 ## Current Phase
-Progress Streaming Debugging
+Architectural Simplification - Removing FastAPI Dependency
 
 ## Recent Changes
-- Attempted streaming implementation
-- Added Server-Sent Events
-- Updated FastAPI routes
-- Modified MCP server response handling
-- Fixed hash fragment handling
-- Improved URL normalization
+- Identified need to simplify architecture by removing FastAPI layer
+- Analyzed current implementation and dependencies
+- Planned migration of core services to MCP server
 
-## Current Issues
-1. Progress Bar Not Working:
-   - Timeout still occurring
-   - No progress updates showing
-   - FastAPI streaming not reaching client
+## Current Focus
+1. Architecture Simplification:
+   - Remove FastAPI middleware layer
+   - Move core services directly into MCP server
+   - Eliminate need for separate server process
+   - Maintain existing functionality
 
-2. Streaming Implementation:
-   ```typescript
-   // Current approach not working
-   responseType: 'text',
-   transformResponse: (data) => data,
-   onDownloadProgress: (progressEvent: any) => {
-     const text = progressEvent.event.target.responseText;
-     // Progress updates not reaching here
-   }
-   ```
+2. Core Services Migration:
+   - Crawler service
+   - Embeddings generation
+   - Vector storage
+   - Progress tracking
 
-3. Possible Problems:
-   - Axios streaming configuration
-   - Event handling timing
-   - Response type mismatch
-   - Progress event structure
+## Next Steps
+1. Migrate Core Services:
+   - Move crawler implementation to MCP server
+   - Integrate embeddings service directly
+   - Connect storage service to MCP server
+   - Port progress tracking functionality
 
-## Next Attempts
-1. Try EventSource:
-```typescript
-const eventSource = new EventSource('/api/v1/crawl');
-eventSource.onmessage = (event) => {
-  const progress = JSON.parse(event.data);
-  // Handle progress
-};
-```
+2. Update Dependencies:
+   - Keep essential packages:
+     - OpenAI for embeddings
+     - Supabase for storage
+     - Trafilatura/BeautifulSoup for content
+     - HTTPX for requests
+   - Remove FastAPI-specific dependencies
 
-2. Or WebSocket:
-```typescript
-const ws = new WebSocket('ws://localhost:8000/api/v1/crawl');
-ws.onmessage = (event) => {
-  const progress = JSON.parse(event.data);
-  // Handle progress
-};
-```
-
-3. Or Chunked Transfer:
-```typescript
-responseType: 'stream',
-headers: {
-  'Accept': 'text/event-stream',
-  'Cache-Control': 'no-cache'
-}
-```
+3. Implement Direct Service Calls:
+   - Update MCP tools to use services directly
+   - Maintain existing tool interfaces
+   - Ensure proper error handling
+   - Preserve progress reporting
 
 ## Implementation Status
-- [x] Project restructuring
-- [x] Path updates
-- [x] Documentation updates
-- [x] MCP server rebuild
-- [x] Package name updates
-- [ ] Progress streaming (failed)
-- [x] URL normalization
-- [x] Timeout configuration
-- [ ] Socket management (pending)
-- [ ] Process tracking (pending)
+- [x] Architecture analysis
+- [x] Migration planning
+- [ ] Core services migration
+- [ ] Dependency updates
+- [ ] Tool interface updates
+- [ ] Testing and validation
 
 ## Current Architecture
 ```
-User
-  |
-  ├── FastAPI Server (Manual Start)
-  |     ├── Content Extraction (trafilatura)
-  |     ├── Link Processing
-  |     |     ├── Hash fragment removal
-  |     |     ├── URL normalization
-  |     |     └── Duplicate prevention
-  |     ├── Progress Streaming (not working)
-  |     |     ├── SSE implementation
-  |     |     ├── Real-time updates
-  |     |     └── Progress tracking
-  |     ├── Chunking
-  |     └── Vector Storage
-  |
-  └── MCP Server
-        ├── Tool Interface
-        ├── Stream Processing (failing)
-        |     ├── Event parsing
-        |     ├── Progress updates
-        |     └── Completion handling
-        ├── Request Handling
-        └── Error Management
+Current:
+User -> MCP Server -> FastAPI Server -> Core Services
+
+Planned:
+User -> MCP Server -> Core Services
+           ├── Crawler Service
+           ├── Embeddings Service
+           └── Storage Service
 ```
 
 ## Technical Debt
-1. Progress Streaming:
-   - Unreliable implementation
-   - Timeout issues
-   - Missing progress updates
+1. Service Integration:
+   - Clean migration of services
+   - Error handling consistency
+   - Progress reporting implementation
+   - Resource cleanup
 
-2. Socket Cleanup:
-   - Ghost processes in netstat
-   - TIME_WAIT states
-   - Port blocking
+2. Documentation:
+   - Update architecture diagrams
+   - Document simplified flow
+   - Update setup instructions
+   - Remove FastAPI references
 
-3. Process Management:
-   - No process tracking
-   - Incomplete cleanup
-   - Missing health checks
-
-4. Configuration:
-   - Hardcoded port
-   - Limited socket options
-   - No fallback ports
+3. Testing:
+   - Verify functionality
+   - Performance testing
+   - Error scenarios
+   - Progress reporting
 
 ## Notes
-- FastAPI must be running before MCP tools work
-- Socket states need better management
-- Process cleanup needs improvement
-- Consider adding port configuration
-- Project structure now cleaner and more maintainable
-- Progress reporting needs complete rework
-- URL handling improved but untested due to timeouts
+- Simplified architecture will reduce complexity
+- Direct service calls will improve performance
+- No more need to start/manage FastAPI server
+- Maintain same functionality with streamlined implementation

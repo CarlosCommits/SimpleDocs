@@ -2,113 +2,94 @@
 
 ## High-Level Architecture
 ```
-MCP Server (Node.js) -> FastAPI Server Manager -> FastAPI Backend -> Supabase/pgvector
+MCP Server (Python/FastMCP) -> Supabase/pgvector
 ```
 
 ## Core Components
 
-### 1. MCP Server (Node.js)
-- TypeScript implementation
-- Manages FastAPI server lifecycle
-- Handles user interactions
-- Provides tools for documentation management:
+### 1. MCP Server (Python/FastMCP)
+- Python implementation using FastMCP/MCP SDK
+- Direct integration of core services:
+  - Crawler Service: Web crawling and content extraction
+  - Embeddings Service: Vector generation
+  - Storage Service: Database operations
+- Tools for documentation management:
   - fetchDocumentation: Crawl and index docs
   - searchDocumentation: Search with source filtering
   - listSources: Overview of available documentation
+- Built-in progress reporting and context management
 
-### 2. FastAPI Server Manager
-```typescript
-class FastAPIServer {
-  private process: ChildProcess | null;
-  private port: number;
-  
-  // Lifecycle Management
-  async start(): Promise<void> {
-    this.process = spawn(this.pythonPath, [
-      '-m', 'uvicorn',
-      'api.main:app',
-      '--port', this.port.toString()
-    ], {
-      stdio: 'pipe',
-      env: process.env,
-      cwd: 'C:/Users/Carlos/Desktop/SimpleDocs/docs-crawler'  // Working directory
-    });
-  }
-  
-  async stop(): Promise<void>;
-  isRunning(): boolean;
-  
-  // Health Checks
-  async checkHealth(): Promise<boolean>;
-  private async waitForReady(): Promise<void>;
-  
-  // Error Handling
-  private handleProcessError(error: Error): void;
-  private handleProcessExit(code: number): void;
-}
+### 2. Virtual Environment Setup
+```bash
+# Create and activate virtual environment
+python -m venv mcp/.venv
+.venv\Scripts\activate  # Windows
+
+# Install dependencies
+pip install "mcp>=1.3.0"
+pip install -r requirements.txt
 ```
 
-### 3. FastAPI Backend
-- Python-based REST API
-- Handles crawling and content processing
-- Manages embeddings generation
-- Implements rate limiting and batching
-
-### 4. Database (Supabase/pgvector)
+### 3. Database (Supabase/pgvector)
 - Document storage in PostgreSQL
 - Vector embeddings using pgvector
 - Schema and functions (see below)
 
 ## Key Technical Patterns
 
-### 1. Server Lifecycle Management
-- Auto-start FastAPI when needed
-- Process monitoring and health checks
-- Graceful shutdown handling
-- Error recovery and restarts
-- Working directory management
+### 1. Python Environment Management
+- Isolated virtual environment
+- Package version control
+- Dependency management
+- Windows-specific considerations
 
-### 2. Process Communication
-- HTTP for API requests
-- Process signals for lifecycle events
-- Environment variables for configuration
-- Health check endpoints
+### 2. Service Integration
+- Direct service calls
+- Async operations
+- Progress tracking
+- Error handling
+- Resource management
 
 ### 3. Configuration Management
-```typescript
-interface ServerConfig {
-  pythonPath: string;    // Path to Python interpreter
-  apiPort: number;       // FastAPI port
-  autoStart: boolean;    // Enable auto-starting
-  maxRetries: number;    // Restart attempts
-  healthCheckInterval: number;  // MS between checks
-  workingDir: string;    // FastAPI working directory
-}
+```python
+# MCP SDK configuration
+from mcp import MCP
+
+mcp = MCP(
+    name="simpledocs",
+    dependencies=[
+        "openai",
+        "supabase",
+        "trafilatura",
+        "httpx"
+    ],
+)
 ```
 
 ### 4. Error Handling Strategy
-1. Process Level:
-   - Crash detection
-   - Auto-restart
-   - Max retry limits
-   - Module import errors
+1. Service Level:
+   - OpenAI API errors
+   - Database connection issues
+   - Crawling failures
+   - Rate limiting
    
-2. Request Level:
-   - Timeout handling
-   - Retry with backoff
-   - Circuit breaking
+2. Tool Level:
+   - Input validation
+   - Progress reporting
+   - Resource cleanup
+   - Error propagation
 
-### 5. Health Monitoring
-1. Process Health:
-   - PID monitoring
-   - Memory usage
-   - CPU utilization
-   - Module imports
+### 5. Progress Monitoring
+1. Crawling Progress:
+   - URLs processed
+   - Content extraction
+   - Embedding generation
+   - Storage operations
    
-2. API Health:
-   - HTTP health checks
-   - Response timing
-   - Error rates
+2. Search Progress:
+   - Query processing
+   - Vector matching
+   - Result formatting
 
 ## Database Schema
 ```sql
@@ -137,35 +118,75 @@ create or replace function match_documents() ...
 ```
 
 ## Performance Considerations
-- Lazy server startup
-- Connection pooling
-- Process reuse
-- Memory management
-- Health monitoring
-- Working directory setup
+- Direct service integration
+- Async operations
+- Resource management
+- Error handling efficiency
+- Progress reporting overhead
 
 ## Security Patterns
-- Process isolation
-- Environment variables
-- Port restrictions
+- API key management
+- Database credentials
+- Rate limiting
+- Input validation
 - Error sanitization
-- Directory access control
 
 ## Deployment Configuration
 ```json
 {
   "mcpServers": {
-    "docs-crawler": {
-      "command": "node",
-      "args": ["build/index.js"],
+    "simpledocs": {
+      "command": "C:/Users/Carlos/Desktop/SimpleDocs/mcp/.venv/Scripts/python.exe",
+      "args": [
+        "-m",
+        "mcp",
+        "run",
+        "server.py"
+      ],
       "env": {
-        "AUTO_START_API": "true",
-        "PYTHON_PATH": "./venv/Scripts/python",
-        "API_PORT": "8000",
-        "WORKING_DIR": "C:/Users/Carlos/Desktop/SimpleDocs/docs-crawler"
+        "OPENAI_API_KEY": "...",
+        "SUPABASE_URL": "...",
+        "SUPABASE_ANON_KEY": "...",
+        "CRAWLER_RATE_LIMIT": "100"
       },
       "disabled": false,
-      "autoApprove": []
+      "autoApprove": ["listSources"]
     }
   }
 }
+```
+
+## Installation Patterns
+1. Virtual Environment:
+   ```bash
+   python -m venv mcp/.venv
+   .venv\Scripts\activate  # Windows
+   ```
+
+2. Dependencies:
+   ```bash
+   pip install "mcp>=1.3.0"
+   pip install -r requirements.txt
+   ```
+
+3. Configuration:
+   - Set up environment variables
+   - Configure virtual environment paths
+   - Set working directory
+   - Configure Cline integration
+
+## Windows-Specific Considerations
+1. Path Formatting:
+   - Use forward slashes in JSON
+   - Use correct venv activation script
+   - Handle spaces in paths
+
+2. Virtual Environment:
+   - Use Scripts instead of bin
+   - Handle path separators
+   - Consider permission issues
+
+3. Module Resolution:
+   - Package installation location
+   - Module import paths
+   - System vs user packages
