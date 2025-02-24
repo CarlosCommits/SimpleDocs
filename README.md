@@ -1,25 +1,18 @@
 # SimpleDocs
 
-A powerful documentation search engine that helps you find relevant information across documentation sites. Built with FastAPI and Node.js, it leverages trafilatura for superior content extraction and pgvector for semantic search.
+A powerful documentation search engine that helps you find relevant information across documentation sites. Built with Python and the Model Context Protocol (MCP), it leverages trafilatura for superior content extraction and pgvector for semantic search.
 
 ## Architecture
 
-The system consists of two main components:
-
-1. FastAPI Backend Server
-   - Handles content crawling and extraction
-   - Manages vector embeddings and search
-   - Must be running for tools to work
-
-2. MCP Server
-   - Provides Cline integration
-   - Handles tool requests
-   - Forwards requests to FastAPI
+The system consists of a single MCP server that directly integrates:
+- Content crawling and extraction
+- Vector embeddings generation
+- Semantic search functionality
+- Supabase storage integration
 
 ## Prerequisites
 
 - Python 3.8+
-- Node.js 16+
 - PostgreSQL with pgvector extension
 - Supabase project (for vector storage)
 
@@ -33,105 +26,114 @@ The system consists of two main components:
 
 2. Set up Python environment:
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # or .\venv\Scripts\activate on Windows
-   pip install -r requirements.txt
-   ```
-
-3. Set up Node.js dependencies:
-   ```bash
    cd mcp
-   npm install
-   npm run build
+   python -m venv .venv
+   .venv\Scripts\activate  # Windows
+   pip install -r ..\requirements.txt
+   pip install "mcp[cli]"  # Required for MCP server execution
    ```
 
-4. Configure environment variables:
-   ```bash
-   # Create .env file in project directory
-   cp .env.example .env
-   
-   # Required variables:
-   OPENAI_API_KEY=your-key-here
-   SUPABASE_URL=your-url-here
-   SUPABASE_KEY=your-key-here
+3. Configure Cline MCP Settings:
+   ```json
+   {
+     "mcpServers": {
+       "simpledocs": {
+         "command": "C:/path/to/SimpleDocs/mcp/.venv/Scripts/mcp.exe",
+         "args": [
+           "run",
+           "C:/path/to/SimpleDocs/mcp/server.py"
+         ],
+         "env": {
+           "OPENAI_API_KEY": "your-key-here",
+           "SUPABASE_URL": "your-supabase-url",
+           "SUPABASE_ANON_KEY": "your-supabase-key",
+           "CRAWLER_RATE_LIMIT": "100",
+           "WORKING_DIR": "C:/path/to/SimpleDocs/"
+         },
+         "disabled": false,
+         "autoApprove": [
+           "fetch_documentation",
+           "search_documentation",
+           "list_sources"
+         ]
+       }
+     }
+   }
    ```
 
-## Running the Servers
-
-IMPORTANT: The FastAPI server must be started BEFORE using any MCP tools.
-
-1. Start FastAPI Server:
-   ```bash
-   # In project root directory
-   source venv/bin/activate  # or .\venv\Scripts\activate on Windows
-   python -m uvicorn api.main:app --port 8000
-   ```
-
-2. Enable MCP Server in Cline:
-   - Open Cline
-   - Go to MCP Servers
-   - Enable "simpledocs"
+   Replace the paths and environment variables with your own values:
+   - Update all paths to match your SimpleDocs installation directory
+   - Set your OpenAI API key
+   - Set your Supabase URL and anonymous key
+   - Optionally adjust the crawler rate limit
 
 ## Available Tools
 
-1. `fetchDocumentation`
+1. `fetch_documentation`
    - Crawl and index documentation from a URL
    - Parameters:
      - url: Documentation URL to crawl
      - recursive: Crawl linked pages (default: true)
-     - maxDepth: How deep to crawl (default: 2)
+     - max_depth: How deep to crawl (default: 2)
 
-2. `searchDocumentation`
+2. `search_documentation`
    - Search through indexed documentation
    - Parameters:
      - query: Search query
      - limit: Max results (default: 5)
-     - minScore: Minimum similarity (default: 0.5)
+     - min_score: Minimum similarity (default: 0.5)
 
-3. `listSources`
+3. `list_sources`
    - List all indexed documentation sources
 
 ## Usage Example
 
-```typescript
-// Crawl documentation
-Use the fetchDocumentation tool to crawl https://docs.example.com
+1. Enable the MCP Server in Cline:
+   - Open Cline
+   - Click "Configure MCP Servers"
+   - Paste the configuration JSON
+   - Click "Done"
 
-// Search content
-Use the searchDocumentation tool to search for "authentication"
+2. Use the tools:
+   ```
+   # Crawl documentation
+   fetch_documentation https://developer.bill.com/docs/home
 
-// List sources
-Use the listSources tool to see indexed documentation
-```
+   # Search content
+   search_documentation "authentication"
+
+   # List sources
+   list_sources
+   ```
 
 ## Troubleshooting
 
-1. Tool Timeouts
-   - Verify FastAPI server is running at http://localhost:8000
-   - Check FastAPI server logs for errors
-   - Ensure all environment variables are set
+1. MCP Server Issues
+   - Verify Python virtual environment is activated
+   - Check all required packages are installed
+   - Ensure MCP CLI is installed (`pip install "mcp[cli]"`)
+   - Verify paths in MCP settings are correct
 
 2. Crawling Issues
    - Check URL is accessible
-   - Verify recursive and maxDepth settings
+   - Verify recursive and max_depth settings
    - Look for rate limiting messages
+   - Check CRAWLER_RATE_LIMIT setting
 
 3. Search Problems
    - Ensure content has been crawled first
    - Check Supabase connection
-   - Verify embeddings are being generated
+   - Verify OpenAI API key is valid
+   - Check embeddings are being generated
 
 ## Development
 
-- FastAPI server: `api/`
-  - Content extraction (trafilatura)
-  - Vector embeddings
-  - Search functionality
-
-- MCP server: `mcp/`
-  - Tool definitions
-  - Request handling
-  - Error management
+The project is organized into services:
+- `crawler.py`: Content extraction and crawling
+- `embeddings.py`: Vector embedding generation
+- `storage.py`: Supabase integration
+- `search.py`: Semantic search functionality
+- `server.py`: MCP server implementation
 
 ## Contributing
 

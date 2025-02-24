@@ -1,11 +1,14 @@
-fastapi>=0.68.0,<0.69.0
-uvicorn>=0.15.0,<0.16.0
 trafilatura>=1.6.1,<1.7.0
 openai>=1.0.0
 supabase>=2.0.0
-pydantic>=1.8.0,<2.0.0
+pydantic>=2.10.1  # Updated for MCP compatibility
 httpx>=0.24.0
 beautifulsoup4>=4.12.0
 python-dotenv>=0.19.0
 ratelimit>=2.2.1
 tenacity>=8.2.0
+lxml>=4.9.0
+starlette>=0.27  # Added for MCP compatibility
+uvicorn>=0.30  # Updated for MCP compatibility
+fastmcp==0.4.1
+mcp[cli]==1.2.1

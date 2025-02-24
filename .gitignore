@@ -2,6 +2,8 @@
 .env
 .env.*
 *config.json
+memory-bank/
+
 
 # Node.js / TypeScript
 node_modules/
