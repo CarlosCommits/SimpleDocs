@@ -11,9 +11,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const elapsedTime = document.getElementById('elapsed-time');
     const currentUrl = document.getElementById('current-url');
     const urlList = document.getElementById('url-list');
-    const resetButton = document.getElementById('reset-button');
-    const refreshButton = document.getElementById('refresh-button');
-    const connectionStatus = document.getElementById('connection-status');
     const currentTime = document.getElementById('current-time');
     
     // Elapsed time tracking
@@ -52,8 +49,6 @@ document.addEventListener('DOMContentLoaded', function() {
         // Connection opened
         socket.addEventListener('open', function(event) {
             console.log('Connected to WebSocket server');
-            connectionStatus.textContent = 'Connected';
-            connectionStatus.className = 'status-connected';
             reconnectAttempts = 0;
             
             // Request current progress
@@ -65,22 +60,18 @@ document.addEventListener('DOMContentLoaded', function() {
         // Connection closed
         socket.addEventListener('close', function(event) {
             console.log('Disconnected from WebSocket server');
-            connectionStatus.textContent = 'Disconnected';
-            connectionStatus.className = 'status-disconnected';
             
             // Attempt to reconnect
             if (reconnectAttempts < maxReconnectAttempts) {
                 reconnectAttempts++;
                 setTimeout(connectWebSocket, reconnectDelay);
-                connectionStatus.textContent = `Reconnecting (${reconnectAttempts}/${maxReconnectAttempts})...`;
+                console.log(`Reconnecting (${reconnectAttempts}/${maxReconnectAttempts})...`);
             }
         });
         
         // Connection error
         socket.addEventListener('error', function(event) {
             console.error('WebSocket error:', event);
-            connectionStatus.textContent = 'Connection Error';
-            connectionStatus.className = 'status-error';
         });
         
         // Message received
@@ -197,19 +188,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Reset progress
-    function resetProgress() {
-        if (confirm('Are you sure you want to reset progress?')) {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'reset_progress'
-                }));
-            }
-        }
-    }
-    
-    // Refresh data
-    function refreshData() {
+    // Auto-refresh data periodically
+    function autoRefreshData() {
         if (socket && socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({
                 type: 'get_progress'
@@ -219,9 +199,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Event listeners
-    resetButton.addEventListener('click', resetProgress);
-    refreshButton.addEventListener('click', refreshData);
+    // Set up auto-refresh every 30 seconds
+    setInterval(autoRefreshData, 30000);
     
     // Initialize
     updateCurrentTime();

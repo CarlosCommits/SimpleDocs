@@ -216,6 +216,7 @@ h2 {
 .url-list-container {
     max-height: 250px;
     overflow-y: auto;
+    overflow-x: hidden; /* Prevent horizontal overflow */
     border: 1px solid #eee;
     border-radius: 4px;
     padding: 10px;
