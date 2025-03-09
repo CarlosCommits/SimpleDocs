@@ -13,6 +13,7 @@
             <div class="status-container">
                 <span class="status-label">Status:</span>
                 <span id="status-value" class="status-idle">Idle</span>
+                <span id="status-details" class="status-details">Waiting to start</span>
             </div>
         </header>
 
@@ -35,8 +36,12 @@
                 </div>
                 <div class="stats-grid">
                     <div class="stat-item">
-                        <div class="stat-label">URLs Processed</div>
-                        <div id="urls-processed" class="stat-value">0</div>
+                        <div class="stat-label">URLs Crawled</div>
+                        <div id="urls-crawled" class="stat-value">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">URLs Fully Processed</div>
+                        <div id="urls-fully-processed" class="stat-value">0</div>
                     </div>
                     <div class="stat-item">
                         <div class="stat-label">URLs Discovered</div>

@@ -56,7 +56,6 @@ async def fetch_documentation(
         # Start the WebSocket server in a separate task
         try:
             from services import websocket_server
-            # Non-blocking start of WebSocket server
             asyncio.create_task(websocket_server.start_server())
         except Exception as e:
             print(f"Warning: Could not start WebSocket server: {str(e)}")
@@ -65,11 +64,10 @@ async def fetch_documentation(
         import webbrowser
         dashboard_url = f"file://{os.path.abspath(os.path.join(os.path.dirname(__file__), 'dashboard', 'index.html'))}"
         print(f"\nOpening Progress Dashboard: {dashboard_url}\n")
-        # Open the dashboard in the default web browser
         webbrowser.open(dashboard_url)
         
         async with DocumentCrawler() as crawler:
-            # Use the crawl method
+            # Use the crawl method with context for progress reporting
             result = await crawler.crawl(
                 url=url,
                 recursive=recursive,
@@ -89,25 +87,17 @@ async def search_documentation(
 ) -> str:
     """Search through indexed documentation"""
     try:
-        # Search documents using DocumentSearch service
         results = await search_client.search(
             query=query,
             limit=limit,
             min_score=min_score
         )
-        
         if not results:
             return "No matching documentation found."
-        
-        # Format results
-        formatted_results = []
-        for i, result in enumerate(results, 1):
-            formatted_results.append(
-                f"{i}. [Score: {result['similarity']:.2f}]\n"
-                f"{result['content']}\n"
-                f"Source: {result['url']}\n"
-            )
-        
+        formatted_results = [
+            f"{i}. [Score: {result['similarity']:.2f}]\n{result['content']}\nSource: {result['url']}\n"
+            for i, result in enumerate(results, 1)
+        ]
         return f"Found {len(results)} results:\n\n" + "\n".join(formatted_results)
     except Exception as e:
         raise Exception(f"Error searching documentation: {str(e)}")

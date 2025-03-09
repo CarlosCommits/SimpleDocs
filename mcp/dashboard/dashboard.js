@@ -2,9 +2,11 @@
 document.addEventListener('DOMContentLoaded', function() {
     // DOM Elements
     const statusValue = document.getElementById('status-value');
+    const statusDetails = document.getElementById('status-details');
     const activityIndicator = document.getElementById('activity-indicator');
     const activityBar = document.getElementById('activity-bar');
-    const urlsProcessed = document.getElementById('urls-processed');
+    const urlsCrawled = document.getElementById('urls-crawled');
+    const urlsFullyProcessed = document.getElementById('urls-fully-processed');
     const urlsDiscovered = document.getElementById('urls-discovered');
     const chunksProcessed = document.getElementById('chunks-processed');
     const chunksTotal = document.getElementById('chunks-total');
@@ -38,30 +40,20 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Connect to WebSocket server
     function connectWebSocket() {
-        // Close existing connection if any
         if (socket) {
             socket.close();
         }
         
-        // Create new connection
         socket = new WebSocket('ws://127.0.0.1:8765');
         
-        // Connection opened
         socket.addEventListener('open', function(event) {
             console.log('Connected to WebSocket server');
             reconnectAttempts = 0;
-            
-            // Request current progress
-            socket.send(JSON.stringify({
-                type: 'get_progress'
-            }));
+            socket.send(JSON.stringify({ type: 'get_progress' }));
         });
         
-        // Connection closed
         socket.addEventListener('close', function(event) {
             console.log('Disconnected from WebSocket server');
-            
-            // Attempt to reconnect
             if (reconnectAttempts < maxReconnectAttempts) {
                 reconnectAttempts++;
                 setTimeout(connectWebSocket, reconnectDelay);
@@ -69,12 +61,10 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
-        // Connection error
         socket.addEventListener('error', function(event) {
             console.error('WebSocket error:', event);
         });
         
-        // Message received
         socket.addEventListener('message', function(event) {
             try {
                 const data = JSON.parse(event.data);
@@ -88,12 +78,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Format elapsed time
     function formatElapsedTime(milliseconds) {
         if (!milliseconds) return '00:00:00';
-        
         const totalSeconds = Math.floor(milliseconds / 1000);
         const hours = Math.floor(totalSeconds / 3600);
         const minutes = Math.floor((totalSeconds % 3600) / 60);
         const seconds = totalSeconds % 60;
-        
         return [
             hours.toString().padStart(2, '0'),
             minutes.toString().padStart(2, '0'),
@@ -103,24 +91,17 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Start elapsed time counter
     function startElapsedTimeCounter() {
-        // Clear any existing interval
         if (elapsedTimeInterval) {
             clearInterval(elapsedTimeInterval);
         }
-        
-        // Set start time if not already set
         if (!startTime) {
             startTime = new Date();
         }
-        
-        // Update elapsed time display
         function updateElapsedTime() {
             const now = new Date();
             const elapsed = now - startTime;
             elapsedTime.textContent = formatElapsedTime(elapsed);
         }
-        
-        // Update immediately and then every second
         updateElapsedTime();
         elapsedTimeInterval = setInterval(updateElapsedTime, 1000);
     }
@@ -135,43 +116,44 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Update dashboard with progress data
     function updateDashboard(data) {
-        // Update status
         if (data.status) {
             statusValue.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
             statusValue.className = `status-${data.status}`;
-            
-            // Update activity indicator
             activityIndicator.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
             
-            // Start or stop elapsed time counter based on status
-            if (data.status === 'processing') {
+            // Update status details based on phase
+            if (data.status === 'crawling') {
+                statusDetails.textContent = `Discovering URLs (${data.urls_crawled || 0}/${data.urls_discovered || 0})`;
                 startElapsedTimeCounter();
                 activityBar.style.display = 'block';
-            } else if (data.status === 'complete') {
+            } else if (data.status === 'scraping') {
+                statusDetails.textContent = `Processing content (${data.urls_fully_processed || 0}/${data.urls_discovered || 0})`;
+                startElapsedTimeCounter();
+                activityBar.style.display = 'block';
+            } else if (data.status === 'complete' || data.status === 'idle') {
+                statusDetails.textContent = data.status === 'complete' ? 'All URLs processed' : 'Waiting to start';
                 stopElapsedTimeCounter();
-                activityBar.style.display = 'none';
-            } else if (data.status === 'idle') {
-                stopElapsedTimeCounter();
-                startTime = null;
-                elapsedTime.textContent = '00:00:00';
+                if (data.status === 'idle') {
+                    startTime = null;
+                    elapsedTime.textContent = '00:00:00';
+                }
                 activityBar.style.display = 'none';
             }
         }
         
-        // Update statistics
-        urlsProcessed.textContent = data.urls_processed || 0;
+        // Update metrics with new crawled/fully processed distinction
+        urlsCrawled.textContent = data.urls_crawled || 0;
+        urlsFullyProcessed.textContent = data.urls_fully_processed || 0;
         urlsDiscovered.textContent = data.urls_discovered || 0;
         chunksProcessed.textContent = data.chunks_processed || 0;
         chunksTotal.textContent = data.chunks_total || 0;
         
-        // Update current URL
         if (data.current_url) {
             currentUrl.textContent = data.current_url;
         } else {
             currentUrl.textContent = '-';
         }
         
-        // Update URL list
         if (data.urls_list && Array.isArray(data.urls_list)) {
             urlList.innerHTML = '';
             data.urls_list.forEach(url => {
@@ -179,7 +161,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 li.textContent = url;
                 urlList.appendChild(li);
             });
-            
             if (data.urls_list.length === 0) {
                 const li = document.createElement('li');
                 li.textContent = 'No URLs processed yet';
@@ -191,18 +172,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // Auto-refresh data periodically
     function autoRefreshData() {
         if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({
-                type: 'get_progress'
-            }));
+            socket.send(JSON.stringify({ type: 'get_progress' }));
         } else {
             connectWebSocket();
         }
     }
     
-    // Set up auto-refresh every 30 seconds
     setInterval(autoRefreshData, 30000);
-    
-    // Initialize
     updateCurrentTime();
     setInterval(updateCurrentTime, 1000);
     connectWebSocket();

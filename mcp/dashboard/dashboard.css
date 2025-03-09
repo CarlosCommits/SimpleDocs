@@ -59,10 +59,18 @@ h2 {
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-wrap: wrap;
 }
 
 .status-label {
     font-weight: bold;
+}
+
+.status-details {
+    font-size: 14px;
+    color: #666;
+    margin-left: 10px;
+    font-style: italic;
 }
 
 .status-idle {
@@ -169,7 +177,7 @@ h2 {
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 15px;
 }
 

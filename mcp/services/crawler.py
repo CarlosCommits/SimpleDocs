@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Set, Tuple, Any
 from ratelimit import limits, sleep_and_retry
 from bs4 import BeautifulSoup
 import httpx
-from .embeddings import generate_embeddings
+from .embeddings import generate_embeddings, generate_embeddings_batch
 from .storage import SupabaseClient
 import os
 import json
@@ -50,57 +50,66 @@ except Exception as e:
     logger.warning(f"Failed to set up file logging. Using console logging only. Error: {str(e)}")
 
 ONE_MINUTE = 60
-MAX_REQUESTS = int(os.getenv("CRAWLER_RATE_LIMIT", "100"))
+MAX_REQUESTS = int(os.getenv("CRAWLER_RATE_LIMIT", "300"))
 
 class DocumentCrawler:
-    def __init__(self, doc_patterns: List[str] = None):
+    def __init__(self, doc_patterns: List[str] = None, max_concurrent_scrapes: int = 30):
         self.doc_patterns = doc_patterns or [
-            '/reference/',
-            '/docs/',
-            '/api/',
-            '/guide/',
-            '/documentation/',
-            '/tutorial/'
+            '/reference/', '/docs/', '/api/', '/guide/', '/documentation/', '/tutorial/'
         ]
         self.supabase = SupabaseClient()
         self.active_jobs = {}
         self.http_client = httpx.AsyncClient(
             timeout=30.0,
             follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (compatible; Documentation Crawler; +http://localhost)"
-            }
+            headers={"User-Agent": "Mozilla/5.0 (compatible; Documentation Crawler; +http://localhost)"}
         )
-        
-        # Progress tracking
         self.chunks_processed = 0
         self.chunks_total = 0
+        self.html_cache = {}  # Cache HTML to avoid refetching
+        self.max_concurrent_scrapes = max_concurrent_scrapes  # Limit concurrent scraping tasks
 
     def _is_documentation_url(self, url: str) -> bool:
-        """Check if URL matches documentation patterns"""
+        """Check if URL matches documentation patterns - optimized for speed"""
+        url_lower = url.lower()
         for pattern in self.doc_patterns:
-            if pattern in url.lower():
-                logger.info(f"URL matched pattern '{pattern}': {url}")
+            if pattern in url_lower:
                 return True
-        logger.info(f"URL did not match any patterns: {url}")
         return False
+        
+    def _get_parent_url(self, url: str) -> Optional[str]:
+        """
+        Determine parent URL based on documentation patterns
+        For example, if URL is https://example.com/docs/topic, 
+        parent URL would be https://example.com/docs/
+        """
+        url_lower = url.lower()
+        parsed = urlparse(url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        for pattern in self.doc_patterns:
+            if pattern in url_lower:
+                # Find the position of the pattern in the path
+                path = parsed.path
+                pattern_pos = path.lower().find(pattern)
+                if pattern_pos >= 0:
+                    # Extract the path up to and including the pattern
+                    parent_path = path[:pattern_pos + len(pattern)]
+                    return f"{base_url}{parent_path}"
+        
+        # If no pattern matches, return None
+        return None
 
     def _extract_links(self, html: str, base_url: str) -> List[str]:
-        """Extract and normalize links from HTML content"""
-        logger.info(f"\n--- DETAILED LINK EXTRACTION for {base_url} ---")
+        """Extract and normalize links from HTML content - optimized for speed"""
         soup = BeautifulSoup(html, 'lxml')
         all_links = soup.find_all('a', href=True)
-        logger.info(f"Total <a> tags found in HTML: {len(all_links)}")
+        logger.debug(f"Found {len(all_links)} links in {base_url}")
         
         links = []
         base_domain = urlparse(base_url).netloc
-        logger.info(f"Base domain: {base_domain}")
         
-        # Log the first 10 links for debugging
-        logger.info("First 10 <a> tags:")
-        for i, a in enumerate(all_links[:10]):
-            logger.info(f"  {i+1}. href='{a['href']}'")
-        
+        # Process links in a more efficient way with less logging
         for a in all_links:
             href = a['href']
             url = urljoin(base_url, href)
@@ -111,49 +120,29 @@ class DocumentCrawler:
             if parsed.query:
                 clean_url += f"?{parsed.query}"
             
-            # Debug info about the link
+            # Check if this is a valid documentation URL
             same_domain = parsed.netloc == base_domain
             is_doc_url = self._is_documentation_url(clean_url)
             is_duplicate = clean_url in links
             
-            logger.info(f"Processing link: {clean_url}")
-            logger.info(f"  Original href: {href}")
-            logger.info(f"  Same domain: {same_domain} (netloc: {parsed.netloc})")
-            logger.info(f"  Is doc URL: {is_doc_url}")
-            logger.info(f"  Is duplicate: {is_duplicate}")
-            
             if (same_domain and is_doc_url and not is_duplicate):
                 links.append(clean_url)
-                logger.info(f"  ADDED: {clean_url}")
-            else:
-                logger.info(f"  SKIPPED: {clean_url}")
         
         logger.info(f"Found {len(links)} unique documentation links on {base_url}")
-        if links:
-            logger.info("Links found:")
-            for link in links:
-                logger.info(f"  - {link}")
-        else:
-            logger.info("No documentation links found!")
-        
         return links
 
     @sleep_and_retry
     @limits(calls=MAX_REQUESTS, period=ONE_MINUTE)
     async def _fetch_url(self, url: str) -> Optional[str]:
-        """Fetch URL content with rate limiting"""
+        """Fetch URL content with rate limiting - optimized for speed"""
         try:
-            logger.info(f"Fetching URL: {url}")
+            # Minimal logging to improve performance
+            logger.debug(f"Fetching URL: {url}")
             response = await self.http_client.get(url)
             response.raise_for_status()
-            logger.info(f"Successfully fetched {url} (Status: {response.status_code})")
-            content_length = len(response.text)
-            logger.info(f"Content length: {content_length} characters")
             
-            # Save a sample of the HTML content for debugging
-            html_sample = response.text[:1000] + "..." if len(response.text) > 1000 else response.text
-            logger.debug(f"HTML sample: {html_sample}")
-            
+            # Only log success at debug level
+            logger.debug(f"Successfully fetched {url} (Status: {response.status_code}, Length: {len(response.text)})")
             return response.text
         except Exception as e:
             logger.error(f"Error fetching {url}: {str(e)}")
@@ -162,10 +151,8 @@ class DocumentCrawler:
             return None
 
     def _extract_content(self, html: str) -> Optional[Dict[str, str]]:
-        """Extract main content using Trafilatura with API docs optimization"""
+        """Extract main content using Trafilatura with API docs optimization - optimized for speed"""
         try:
-            logger.info("Extracting content from HTML")
-            
             # First try Trafilatura for content extraction
             content = trafilatura.extract(
                 html,
@@ -178,17 +165,15 @@ class DocumentCrawler:
             # Parse HTML for metadata and backup content extraction
             soup = BeautifulSoup(html, 'lxml')
             title = soup.title.string if soup.title else None
-            logger.info(f"Page title: {title}")
 
             # If Trafilatura fails, try extracting from common API doc elements
             if not content:
-                logger.info("Trafilatura extraction failed, trying API docs specific extraction")
+                logger.debug("Trafilatura extraction failed, trying API docs specific extraction")
                 api_content_elements = soup.select(
                     'main, article, .content, .documentation, .api-content, ' +
                     '.endpoint-description, .method-description, .api-docs'
                 )
                 if api_content_elements:
-                    logger.info(f"Found {len(api_content_elements)} API content elements")
                     content = ' '.join(elem.get_text(strip=True, separator=' ') 
                                      for elem in api_content_elements)
 
@@ -196,10 +181,7 @@ class DocumentCrawler:
                 logger.error("Content extraction failed")
                 return None
 
-            logger.info(f"Successfully extracted content (Length: {len(content)})")
-            # Log a sample of the extracted content
-            content_sample = content[:500] + "..." if len(content) > 500 else content
-            logger.debug(f"Content sample: {content_sample}")
+            logger.debug(f"Extracted content (Length: {len(content)})")
             
             return {
                 "title": title,
@@ -209,247 +191,311 @@ class DocumentCrawler:
             logger.error(f"Error extracting content: {str(e)}")
             return None
 
-    def _chunk_content(self, content: str) -> List[str]:
-        """Implement hybrid chunking strategy"""
-        logger.info(f"Chunking content of length {len(content)}")
-        
-        if len(content) < 1000:
-            logger.info("Content under 1000 chars, using as single chunk")
-            return [content]
-        
-        # Split by common API documentation section markers
-        section_markers = [
-            "## ", "### ", "#### ",  # Markdown headers
-            "Parameters", "Request", "Response",  # Common API doc sections
-            "Example", "Returns", "Arguments"
-        ]
-        
-        chunks = []
-        current_chunk = []
-        current_length = 0
-        
-        # Split into lines and process
-        lines = content.split('\n')
-        for line in lines:
-            # Check if line starts a new section
-            is_section_start = any(line.strip().startswith(marker) for marker in section_markers)
-            
-            if is_section_start and current_chunk:
-                # Store current chunk if we hit a new section
-                chunks.append('\n'.join(current_chunk))
-                current_chunk = []
-                current_length = 0
-            
-            current_chunk.append(line)
-            current_length += len(line)
-            
-            # If chunk gets too large, store it
-            if current_length >= 1000:
-                chunks.append('\n'.join(current_chunk))
-                current_chunk = []
-                current_length = 0
-        
-        # Add any remaining content
-        if current_chunk:
-            chunks.append('\n'.join(current_chunk))
-        
-        logger.info(f"Split content into {len(chunks)} chunks")
-        return chunks
+    def _prepare_content(self, title: Optional[str], content: str) -> str:
+        """
+        Prepare content for embedding by combining title and content
+        This improves search quality by including title keywords in the embedding
+        """
+        if title:
+            # Combine title and content for better search results
+            return f"Title: {title}\n\nContent: {content}"
+        return content
 
-    async def _process_url(self, url: str, parent_url: Optional[str] = None, ctx = None) -> Tuple[bool, List[str]]:
-        """Process a single URL and return success status and found links"""
+    async def _process_url(self, url: str, parent_url: Optional[str] = None, ctx=None) -> Tuple[bool, Dict]:
+        """Process a single URL and return success status and document data"""
         try:
-            logger.info(f"\n=== Processing URL: {url} ===")
-            logger.info(f"Parent URL: {parent_url if parent_url else 'None (root URL)'}")
+            logger.debug(f"Processing URL: {url}")
             
-            # Fetch content
-            html = await self._fetch_url(url)
+            # Use cached HTML or fetch if not cached
+            html = self.html_cache.get(url)
             if not html:
-                logger.error(f"Failed to fetch content from {url}")
-                return False, []
+                html = await self._fetch_url(url)
+                if not html:
+                    logger.error(f"Failed to fetch content from {url}")
+                    return False, {}
+                self.html_cache[url] = html
 
             # Extract content
             extracted = self._extract_content(html)
             if not extracted:
                 logger.error(f"Failed to extract content from {url}")
-                return False, []
+                return False, {}
 
-            # Extract links for recursive crawling
-            links = self._extract_links(html, url)
-
-            # Chunk content
-            chunks = self._chunk_content(extracted["content"])
-            logger.info(f"Processing {len(chunks)} chunks from {url}")
-
-            # Update total chunks count
-            self.chunks_total += len(chunks)
-            logger.info(f"Updated total chunks count: {self.chunks_total}")
+            # Prepare content by combining title and content for better search results
+            prepared_content = self._prepare_content(extracted["title"], extracted["content"])
             
-            # Generate embeddings and store
-            successful_chunks = 0
-            for i, chunk in enumerate(chunks, 1):
-                logger.info(f"Processing chunk {i}/{len(chunks)} from {url}")
-                embedding = await generate_embeddings(chunk)
-                if embedding:
-                    logger.info(f"Generated embedding for chunk {i}, dimension: {len(embedding)}")
-                    success = await self.supabase.store_document({
-                        "url": url,
-                        "title": extracted["title"],
-                        "content": chunk,
-                        "embedding": embedding,
-                        "parent_url": parent_url
-                    })
-                    if success:
-                        successful_chunks += 1
-                        self.chunks_processed += 1
-                        logger.info(f"Successfully stored chunk {i}")
-                        
-                        # Report progress if context is provided
-                        if ctx:
-                            # Simplified progress reporting without named parameters
-                            progress = self.chunks_processed / max(self.chunks_total, 1)
-                            await ctx.report_progress(
-                                progress,
-                                f"Processing {url} ({i}/{len(chunks)})"
-                            )
-                    else:
-                        logger.error(f"Failed to store chunk {i} from {url}")
-                else:
-                    logger.error(f"Failed to generate embedding for chunk {i}")
-
-            logger.info(f"Successfully processed {successful_chunks}/{len(chunks)} chunks from {url}")
-            return successful_chunks > 0, links
+            # Return the document data for batch processing
+            return True, {
+                "url": url,
+                "title": extracted["title"],
+                "content": extracted["content"],
+                "prepared_content": prepared_content,
+                "parent_url": parent_url
+            }
         except Exception as e:
             logger.error(f"Error processing {url}: {str(e)}")
             logger.error(f"Stack trace: {traceback.format_exc()}")
             return False, []
 
-    async def crawl_with_progress(
-        self,
-        url: str,
-        recursive: bool = False,
-        max_depth: int = 1,
-        ctx = None
-    ):
+    async def crawl_with_progress(self, url: str, recursive: bool = False, max_depth: int = 1, ctx=None):
         """
-        Crawl documentation from a URL with progress updates
+        Crawl documentation from a URL with progress updates, then scrape all URLs simultaneously
         """
         logger.info(f"\n=== Starting crawl of {url} ===")
         logger.info(f"Settings: recursive={recursive}, max_depth={max_depth}")
-        
-        # Initialize with empty processed_urls set
-        processed_urls = set()
-        urls_to_process = [(url, 0)]  # (url, depth)
-        
-        # Reset progress counters
-        self.chunks_processed = 0
-        self.chunks_total = 0
-        logger.info(f"Reset progress counters: processed={self.chunks_processed}, total={self.chunks_total}")
-        
-        # Track all discovered URLs for reporting
-        all_discovered_urls = set([url])
-        
-        # Start WebSocket server if not already running
+
+        # Reset progress.json at the start of a new crawl
         try:
-            # Create task to start WebSocket server (non-blocking)
-            ws_server_task = asyncio.create_task(
-                websocket_server.start_server()
-            )
-            logger.info("WebSocket server task created")
-        except Exception as e:
-            logger.error(f"Error starting WebSocket server: {str(e)}")
-        
-        while urls_to_process:
-            current_url, depth = urls_to_process.pop(0)
-            logger.info(f"Processing URL at depth {depth}: {current_url}")
-            
-            # Prepare progress update
-            progress_update = {
-                "status": "processing",
-                "urls_processed": len(processed_urls),
-                "urls_discovered": len(all_discovered_urls),
-                "chunks_processed": self.chunks_processed,
-                "chunks_total": self.chunks_total or 1,  # Avoid division by zero
-                "current_url": current_url
+            initial_progress = {
+                "status": "crawling",
+                "urls_crawled": 0,
+                "urls_fully_processed": 0,
+                "urls_discovered": 0,  # Start with 0, will be updated after first URL is processed
+                "chunks_processed": 0,
+                "chunks_total": 0,
+                "current_url": url,
+                "urls_list": [],
+                "last_updated": datetime.datetime.now().isoformat()
             }
+            await websocket_server.update_progress(initial_progress)
             
-            # Send progress update to WebSocket clients
-            try:
-                await websocket_server.update_progress(progress_update)
-            except Exception as e:
-                logger.error(f"Error updating WebSocket progress: {str(e)}")
-            
-            # Yield progress for MCP
-            logger.info(f"Progress update: {json.dumps(progress_update)}")
-            yield progress_update
-            
-            if current_url in processed_urls:
-                logger.info(f"Skipping already processed URL: {current_url}")
-                continue
+            # Add the initial URL to the discovered count in a separate update
+            # This ensures our reset logic in websocket_server.py works correctly
+            await asyncio.sleep(0.1)  # Small delay to ensure reset happens first
+            await websocket_server.update_progress({
+                "urls_discovered": 1  # Now add the initial URL
+            })
+        except Exception as e:
+            logger.error(f"Error resetting progress: {str(e)}")
+
+        # Phase 1: Crawling - Collect all URLs in parallel
+        logger.info("Starting crawling phase")
+        crawled_urls = set()  # URLs that have been crawled for links
+        fully_processed_urls = set()  # URLs that have been fully processed (embedded)
+        urls_to_process = [(url, 0)]  # (url, depth)
+        all_urls_to_scrape = set([url])
+        
+        # Track parent-child relationships for URLs
+        url_parents = {}  # Maps URL to its parent URL
+        
+        # Semaphore to limit concurrent crawling
+        crawl_semaphore = asyncio.Semaphore(self.max_concurrent_scrapes)
+        
+        async def process_url_for_links(url: str, depth: int):
+            """Process a single URL to extract links"""
+            async with crawl_semaphore:
+                if url in crawled_urls:
+                    logger.info(f"Skipping already crawled URL: {url}")
+                    return []
                 
-            success, links = await self._process_url(current_url, parent_url=url if depth > 0 else None, ctx=ctx)
-            if success:
-                # Only add to processed_urls after successful processing
-                processed_urls.add(current_url)
-                logger.info(f"Successfully processed {current_url}")
-                logger.info(f"Total processed URLs: {len(processed_urls)}")
+                # Fetch HTML and cache it
+                html = await self._fetch_url(url)
+                if not html:
+                    logger.error(f"Failed to fetch content from {url}")
+                    return []
+                self.html_cache[url] = html
                 
-                # Update progress with the newly processed URL
-                progress_update["urls_processed"] = len(processed_urls)
-                progress_update["urls_list"] = list(processed_urls)
+                # Extract links for recursive crawling
+                links = self._extract_links(html, url)
+                crawled_urls.add(url)
+                
+                # Update progress
+                progress_update = {
+                    "status": "crawling",
+                    "urls_crawled": len(crawled_urls),
+                    "urls_fully_processed": len(fully_processed_urls),
+                    "urls_discovered": len(all_urls_to_scrape),
+                    "current_url": url
+                }
                 try:
                     await websocket_server.update_progress(progress_update)
                 except Exception as e:
                     logger.error(f"Error updating WebSocket progress: {str(e)}")
                 
-                # Handle recursive crawling
-                if recursive and depth < max_depth:
-                    new_depth = depth + 1
-                    logger.info(f"Adding {len(links)} links at depth {new_depth}")
-                    
-                    # Add new links to process with incremented depth
-                    for link in links:
-                        if link not in processed_urls and link not in [u for u, _ in urls_to_process]:
-                            urls_to_process.append((link, new_depth))
-                            all_discovered_urls.add(link)
-                            logger.info(f"Added to processing queue: {link}")
-                        else:
-                            logger.info(f"Skipping already queued/processed link: {link}")
-                else:
-                    if not recursive:
-                        logger.info("Recursive crawling disabled, not adding links")
-                    elif depth >= max_depth:
-                        logger.info(f"Reached max depth ({max_depth}), not adding more links")
-            else:
-                logger.error(f"Failed to process {current_url}")
+                return links
         
+        # Process URLs in waves based on depth
+        current_depth = 0
+        while urls_to_process and current_depth <= max_depth:
+            # Filter URLs at the current depth
+            current_wave = [(u, d) for u, d in urls_to_process if d == current_depth]
+            urls_to_process = [(u, d) for u, d in urls_to_process if d != current_depth]
+            
+            if not current_wave:
+                current_depth += 1
+                continue
+                
+            logger.info(f"Processing {len(current_wave)} URLs at depth {current_depth}")
+            
+            # Process all URLs at this depth in parallel
+            tasks = [process_url_for_links(url, depth) for url, depth in current_wave]
+            results = await asyncio.gather(*tasks)
+            
+            # Process results and add new URLs to queue
+            if recursive and current_depth < max_depth:
+                new_depth = current_depth + 1
+                for url_depth, links in zip(current_wave, results):
+                    source_url = url_depth[0]
+                    logger.info(f"Found {len(links)} links from {source_url}")
+                    for link in links:
+                        if link not in crawled_urls and link not in [u for u, _ in urls_to_process]:
+                            urls_to_process.append((link, new_depth))
+                            all_urls_to_scrape.add(link)
+                            # Track parent-child relationship
+                            url_parents[link] = source_url
+                            logger.debug(f"Set parent for {link} to {source_url}")
+                        else:
+                            logger.debug(f"Skipping already queued/crawled link: {link}")
+            
+            # Update progress after processing this wave
+            progress_update = {
+                "status": "crawling",
+                "urls_crawled": len(crawled_urls),
+                "urls_fully_processed": len(fully_processed_urls),
+                "urls_discovered": len(all_urls_to_scrape),
+                "current_url": "Processing multiple URLs"
+            }
+            try:
+                await websocket_server.update_progress(progress_update)
+            except Exception as e:
+                logger.error(f"Error updating WebSocket progress: {str(e)}")
+            
+            yield progress_update
+            current_depth += 1
+
+        # Phase 2: Scraping - Process all URLs in parallel
+        logger.info("Starting scraping phase")
+        self.chunks_processed = 0
+        self.chunks_total = 0
+
+        # Semaphore to limit concurrent scrapes
+        semaphore = asyncio.Semaphore(self.max_concurrent_scrapes)
+
+        async def bounded_process_url(url: str, parent_url: Optional[str] = None):
+            async with semaphore:
+                try:
+                    logger.info(f"Starting to process URL: {url}")
+                    success, doc_data = await self._process_url(url, parent_url, ctx)
+                    
+                    if success:
+                        logger.info(f"Successfully processed URL: {url}")
+                        return True, doc_data
+                    else:
+                        logger.error(f"Failed to process URL: {url} - Content extraction failed")
+                        # Log detailed information about the failed URL
+                        html = self.html_cache.get(url)
+                        if html:
+                            logger.debug(f"HTML content length for failed URL {url}: {len(html)}")
+                            # Check if there's a title
+                            try:
+                                soup = BeautifulSoup(html, 'lxml')
+                                title = soup.title.string if soup.title else "No title found"
+                                logger.debug(f"Title of failed URL {url}: {title}")
+                            except Exception as e:
+                                logger.error(f"Error parsing HTML for failed URL {url}: {str(e)}")
+                        else:
+                            logger.error(f"No HTML content cached for failed URL {url}")
+                        return False, None
+                except Exception as e:
+                    logger.error(f"Unexpected error processing URL {url}: {str(e)}")
+                    logger.error(f"Stack trace for {url}: {traceback.format_exc()}")
+                    return False, None
+
+        # Create tasks for all URLs with pattern-based parent URLs
+        tasks = []
+        for url in all_urls_to_scrape:
+            # Determine parent URL based on URL pattern
+            parent_url = self._get_parent_url(url)
+            logger.debug(f"Determined parent URL for {url}: {parent_url}")
+            tasks.append(bounded_process_url(url, parent_url))
+            
+        # Process URLs and collect document data
+        logger.info(f"Processing {len(tasks)} URLs for content extraction")
+        document_batch = []
+        batch_size = 20  # Process 20 documents at a time
+        
+        # Process all URLs and collect their document data
+        results = await asyncio.gather(*tasks)
+        for success, doc_data in results:
+            if success and doc_data:
+                document_batch.append(doc_data)
+                
+        # Process document batches
+        if document_batch:
+            logger.info(f"Processing {len(document_batch)} documents in batches of {batch_size}")
+            self.chunks_total = len(document_batch)
+            
+            # Process in batches
+            for i in range(0, len(document_batch), batch_size):
+                batch = document_batch[i:i+batch_size]
+                
+                # Extract prepared content for embedding
+                prepared_contents = [doc["prepared_content"] for doc in batch]
+                
+                # Generate embeddings in a single batch call
+                logger.info(f"Generating embeddings for batch of {len(batch)} documents")
+                embeddings = await generate_embeddings_batch(prepared_contents)
+                
+                # Store documents with embeddings
+                successful_docs = 0
+                for j, (doc, embedding) in enumerate(zip(batch, embeddings)):
+                    if embedding:
+                        # Store document with embedding
+                        success = await self.supabase.store_document({
+                            "url": doc["url"],
+                            "title": doc["title"],
+                            "content": doc["content"],
+                            "embedding": embedding,
+                            "parent_url": doc["parent_url"]
+                        })
+                        
+                        if success:
+                            successful_docs += 1
+                            self.chunks_processed += 1
+                            fully_processed_urls.add(doc["url"])
+                        else:
+                            logger.error(f"Failed to store document for URL: {doc['url']}")
+                    else:
+                        logger.error(f"Failed to generate embedding for URL: {doc['url']}")
+                
+                # Update progress after each batch
+                progress_update = {
+                    "status": "scraping",
+                    "urls_crawled": len(crawled_urls),
+                    "urls_fully_processed": len(fully_processed_urls),
+                    "urls_discovered": len(all_urls_to_scrape),
+                    "chunks_processed": self.chunks_processed,
+                    "chunks_total": self.chunks_total,
+                    "current_url": f"Processed batch {i//batch_size + 1}/{(len(document_batch) + batch_size - 1)//batch_size}"
+                }
+                
+                try:
+                    await websocket_server.update_progress(progress_update)
+                except Exception as e:
+                    logger.error(f"Error updating WebSocket progress: {str(e)}")
+                
+                logger.info(f"Processed batch {i//batch_size + 1}: {successful_docs}/{len(batch)} documents successful")
+                yield progress_update
+
         # Final progress update
         final_update = {
             "status": "complete",
-            "urls_processed": len(processed_urls),
-            "urls_discovered": len(all_discovered_urls),
+            "urls_crawled": len(crawled_urls),
+            "urls_fully_processed": len(fully_processed_urls),
+            "urls_discovered": len(all_urls_to_scrape),
             "chunks_processed": self.chunks_processed,
             "chunks_total": self.chunks_total,
-            "urls_list": list(processed_urls),
+            "urls_list": list(fully_processed_urls),
             "current_url": ""
         }
-        
-        # Send final update to WebSocket clients
         try:
             await websocket_server.update_progress(final_update)
         except Exception as e:
             logger.error(f"Error updating WebSocket progress: {str(e)}")
-            
         logger.info(f"Final progress update: {json.dumps(final_update)}")
         yield final_update
 
-    async def crawl(
-        self,
-        url: str,
-        recursive: bool = False,
-        max_depth: int = 1,
-        ctx = None
-    ):
+    async def crawl(self, url: str, recursive: bool = False, max_depth: int = 1, ctx=None):
         """
         Crawl documentation from a URL and return final results
         
@@ -482,3 +528,11 @@ class DocumentCrawler:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.http_client.aclose()
+
+if __name__ == "__main__":
+    async def test_crawl():
+        async with DocumentCrawler() as crawler:
+            async for result in crawler.crawl_with_progress("https://example.com/docs", recursive=True, max_depth=2):
+                print(result)
+
+    asyncio.run(test_crawl())
