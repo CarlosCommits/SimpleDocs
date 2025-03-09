@@ -14,18 +14,40 @@ import datetime
 from urllib.parse import urljoin, urlparse
 from . import websocket_server
 
-# Set up file-based logging
-log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-os.makedirs(log_dir, exist_ok=True)
-log_file = os.path.join(log_dir, f"crawler_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-
-logging.basicConfig(
-    filename=log_file,
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger("crawler")
-logger.info(f"Crawler logging initialized. Log file: {log_file}")
+# Set up file-based logging with robust error handling
+try:
+    # Use absolute path with WORKING_DIR environment variable if available
+    working_dir = os.getenv("WORKING_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    log_dir = os.path.join(working_dir, "mcp", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    
+    log_file = os.path.join(log_dir, f"crawler_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+    
+    # Create a file handler and set its level and formatter
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    
+    # Get the logger and add the handler
+    logger = logging.getLogger("crawler")
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(file_handler)
+    
+    # Add a console handler to see logs in terminal too
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    logger.info(f"Crawler logging initialized. Log file: {log_file}")
+    print(f"Crawler log file: {log_file}")  # Print to console for visibility
+except Exception as e:
+    print(f"Error setting up logging: {str(e)}")
+    # Set up a basic console logger as fallback
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("crawler")
+    logger.warning(f"Failed to set up file logging. Using console logging only. Error: {str(e)}")
 
 ONE_MINUTE = 60
 MAX_REQUESTS = int(os.getenv("CRAWLER_RATE_LIMIT", "100"))
