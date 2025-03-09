@@ -13,6 +13,7 @@ class FetchRequest(BaseModel):
     url: HttpUrl
     recursive: Optional[bool] = True
     max_depth: Optional[int] = 2
+    doc_patterns: Optional[List[str]] = None
 
 class SearchRequest(BaseModel):
     query: str
@@ -49,6 +50,7 @@ async def fetch_documentation(
     url: str,
     recursive: bool = True,
     max_depth: int = 2,
+    doc_patterns: List[str] = None,
     ctx: Context = None
 ) -> str:
     """Fetch and index documentation from a URL"""
@@ -72,6 +74,7 @@ async def fetch_documentation(
                 url=url,
                 recursive=recursive,
                 max_depth=max_depth,
+                doc_patterns=doc_patterns,
                 ctx=ctx
             )
             

@@ -237,10 +237,20 @@ class DocumentCrawler:
             logger.error(f"Stack trace: {traceback.format_exc()}")
             return False, []
 
-    async def crawl_with_progress(self, url: str, recursive: bool = False, max_depth: int = 1, ctx=None):
+    async def crawl_with_progress(self, url: str, recursive: bool = False, max_depth: int = 1, doc_patterns: List[str] = None, ctx=None):
         """
         Crawl documentation from a URL with progress updates, then scrape URLs in batches
+        
+        Parameters:
+        - url: URL to crawl
+        - recursive: Whether to crawl linked pages
+        - max_depth: Maximum depth for recursive crawling
+        - doc_patterns: List of URL patterns to identify documentation pages
+        - ctx: MCP context for progress reporting
         """
+        # Update doc_patterns if provided
+        if doc_patterns is not None:
+            self.doc_patterns = doc_patterns
         logger.info(f"\n=== Starting crawl of {url} ===")
         logger.info(f"Settings: recursive={recursive}, max_depth={max_depth}")
 
@@ -256,7 +266,7 @@ class DocumentCrawler:
                 "current_url": url,
                 "urls_list": [],
                 "scrape_batch_size": self.max_concurrent_scrapes,  # Add batch size information
-                "embed_batch_size": 20,  # Add embedding batch size information
+                "embed_batch_size": 50,  # Add embedding batch size information
                 "last_updated": datetime.datetime.now().isoformat()
             }
             await websocket_server.update_progress(initial_progress)
@@ -374,7 +384,7 @@ class DocumentCrawler:
         all_urls_list = list(all_urls_to_scrape)
         scrape_batch_size = self.max_concurrent_scrapes
         document_batch = []
-        embed_batch_size = 20  # Process 20 documents at a time for embedding
+        embed_batch_size = 50  # Process 50 documents at a time for embedding
         
         # Update progress to show we're starting the scraping phase
         await websocket_server.update_progress({
@@ -547,7 +557,7 @@ class DocumentCrawler:
         logger.info(f"Final progress update: {json.dumps(final_update)}")
         yield final_update
 
-    async def crawl(self, url: str, recursive: bool = False, max_depth: int = 1, ctx=None):
+    async def crawl(self, url: str, recursive: bool = False, max_depth: int = 1, doc_patterns: List[str] = None, ctx=None):
         """
         Crawl documentation from a URL and return final results
         
@@ -555,6 +565,7 @@ class DocumentCrawler:
         - url: URL to crawl
         - recursive: Whether to crawl linked pages
         - max_depth: Maximum depth for recursive crawling
+        - doc_patterns: List of URL patterns to identify documentation pages
         - ctx: MCP context for progress reporting
         """
         last_result = None
@@ -562,6 +573,7 @@ class DocumentCrawler:
             url=url,
             recursive=recursive,
             max_depth=max_depth,
+            doc_patterns=doc_patterns,
             ctx=ctx
         ):
             last_result = result
@@ -584,7 +596,12 @@ class DocumentCrawler:
 if __name__ == "__main__":
     async def test_crawl():
         async with DocumentCrawler() as crawler:
-            async for result in crawler.crawl_with_progress("https://example.com/docs", recursive=True, max_depth=2):
+            async for result in crawler.crawl_with_progress(
+                url="https://example.com/docs",
+                recursive=True,
+                max_depth=2,
+                doc_patterns=['/docs/', '/reference/']
+            ):
                 print(result)
 
     asyncio.run(test_crawl())
