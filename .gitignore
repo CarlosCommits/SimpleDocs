@@ -3,6 +3,7 @@
 .env.*
 *config.json
 memory-bank/
+progress.json
 
 
 # Node.js / TypeScript

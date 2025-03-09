@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- Create documents table
 CREATE TABLE IF NOT EXISTS documents (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-    url TEXT NOT NULL,
+    url TEXT NOT NULL UNIQUE,
     title TEXT,
     content TEXT NOT NULL,
     embedding vector(1536),
@@ -12,9 +12,24 @@ CREATE TABLE IF NOT EXISTS documents (
     doc_type TEXT NOT NULL DEFAULT '',
     doc_section TEXT,
     parent_url TEXT,
+    version INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
 );
+
+-- Create trigger to increment version on update
+CREATE OR REPLACE FUNCTION increment_version()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.version = OLD.version + 1;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER increment_document_version
+BEFORE UPDATE ON documents
+FOR EACH ROW
+EXECUTE FUNCTION increment_version();
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS documents_embedding_idx 

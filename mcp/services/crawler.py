@@ -66,6 +66,9 @@ class DocumentCrawler:
         )
         self.chunks_processed = 0
         self.chunks_total = 0
+        self.urls_new = 0  # Counter for new documents
+        self.urls_updated = 0  # Counter for updated documents
+        self.urls_unchanged = 0  # Counter for unchanged documents
         self.html_cache = {}  # Cache HTML to avoid refetching
         self.max_concurrent_scrapes = max_concurrent_scrapes  # Limit concurrent scraping tasks
 
@@ -504,7 +507,7 @@ class DocumentCrawler:
                 for j, (doc, embedding) in enumerate(zip(batch, embeddings)):
                     if embedding:
                         # Store document with embedding
-                        success = await self.supabase.store_document({
+                        result = await self.supabase.store_document({
                             "url": doc["url"],
                             "title": doc["title"],
                             "content": doc["content"],
@@ -512,9 +515,20 @@ class DocumentCrawler:
                             "parent_url": doc["parent_url"]
                         })
                         
-                        if success:
+                        if result["success"]:
                             successful_docs += 1
                             self.chunks_processed += 1
+                            
+                            # Track document status
+                            if result["is_new"]:
+                                self.urls_new += 1
+                                logger.info(f"Added new document: {doc['url']}")
+                            elif result["is_updated"]:
+                                self.urls_updated += 1
+                                logger.info(f"Updated existing document: {doc['url']}")
+                            else:
+                                self.urls_unchanged += 1
+                                logger.info(f"Document unchanged: {doc['url']}")
                         else:
                             logger.error(f"Failed to store document for URL: {doc['url']}")
                     else:
@@ -547,6 +561,9 @@ class DocumentCrawler:
             "urls_discovered": len(all_urls_to_scrape),
             "chunks_processed": self.chunks_processed,
             "chunks_total": self.chunks_total,
+            "urls_new": self.urls_new,
+            "urls_updated": self.urls_updated,
+            "urls_unchanged": self.urls_unchanged,
             "urls_list": list(fully_processed_urls),
             "current_url": ""
         }

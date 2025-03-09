@@ -162,6 +162,15 @@ document.addEventListener('DOMContentLoaded', function() {
         chunksProcessed.textContent = data.chunks_processed || 0;
         chunksTotal.textContent = data.chunks_total || 0;
         
+        // Update document status metrics
+        const urlsNew = document.getElementById('urls-new');
+        const urlsUpdated = document.getElementById('urls-updated');
+        const urlsUnchanged = document.getElementById('urls-unchanged');
+        
+        if (urlsNew) urlsNew.textContent = data.urls_new || 0;
+        if (urlsUpdated) urlsUpdated.textContent = data.urls_updated || 0;
+        if (urlsUnchanged) urlsUnchanged.textContent = data.urls_unchanged || 0;
+        
         if (data.current_url) {
             currentUrl.textContent = data.current_url;
         } else {

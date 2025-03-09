@@ -38,6 +38,9 @@ class ProgressWebSocketServer:
             "urls_discovered": 0,
             "chunks_processed": 0,
             "chunks_total": 0,
+            "urls_new": 0,          # New documents added
+            "urls_updated": 0,      # Existing documents updated
+            "urls_unchanged": 0,    # Documents that didn't need updating
             "current_url": "",
             "urls_list": [],
             "scrape_batch_size": 30,  # Default batch size for scraping

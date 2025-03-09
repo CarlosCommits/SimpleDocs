@@ -77,15 +77,24 @@ class SupabaseClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10)
     )
-    async def store_document(self, document: Dict) -> bool:
+    async def store_document(self, document: Dict) -> Dict:
         """
-        Store a document with its embedding and metadata
+        Store a document with its embedding and metadata, updating if it already exists
+        Returns a dict with status information: {'success': bool, 'is_new': bool}
         """
         try:
             # Extract metadata from URL
             metadata = self._extract_metadata(document["url"])
             
-            response = self.client.table('documents').insert({
+            # Check if document exists and if content has changed
+            existing_doc = self.client.table('documents').select('content').eq('url', document["url"]).execute()
+            
+            # If document exists and content hasn't changed, skip update
+            if existing_doc.data and existing_doc.data[0]['content'] == document["content"]:
+                return {"success": True, "is_new": False, "is_updated": False}
+            
+            # If document exists but content has changed, or document doesn't exist
+            doc_data = {
                 "url": document["url"],
                 "title": document.get("title"),
                 "content": document["content"],
@@ -93,13 +102,26 @@ class SupabaseClient:
                 "source_domain": metadata["source_domain"],
                 "doc_type": metadata["doc_type"],
                 "doc_section": metadata["doc_section"],
-                "parent_url": document.get("parent_url")
-            }).execute()
+                "parent_url": document.get("parent_url"),
+                "updated_at": "now()"  # Explicitly update the timestamp
+            }
             
-            return True if response.data else False
+            # Use upsert operation with URL as the unique key
+            response = self.client.table('documents').upsert(
+                doc_data,
+                on_conflict="url"
+            ).execute()
+            
+            is_new = not existing_doc.data
+            
+            return {
+                "success": True if response.data else False,
+                "is_new": is_new,
+                "is_updated": not is_new
+            }
         except Exception as e:
             print(f"Error storing document: {str(e)}")
-            return False
+            return {"success": False, "is_new": False, "is_updated": False}
 
     @retry(
         stop=stop_after_attempt(3),

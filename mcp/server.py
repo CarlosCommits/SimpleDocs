@@ -17,8 +17,8 @@ class FetchRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
-    limit: Optional[int] = 5
-    min_score: Optional[float] = 0.5
+    limit: Optional[int] = 3
+    min_score: Optional[float] = 0.81
 
 class DocumentResult(BaseModel):
     content: str
@@ -85,8 +85,8 @@ async def fetch_documentation(
 @mcp.tool()
 async def search_documentation(
     query: str,
-    limit: int = 5,
-    min_score: float = 0.5
+    limit: int = 3,
+    min_score: float = 0.81
 ) -> str:
     """Search through indexed documentation"""
     try:
