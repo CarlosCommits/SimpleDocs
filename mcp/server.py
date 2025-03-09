@@ -3,6 +3,8 @@ from fastmcp import FastMCP, Context
 from pydantic import BaseModel, HttpUrl
 from typing import Optional, List
 import json
+import os
+import asyncio
 from datetime import datetime
 from services import DocumentCrawler, DocumentSearch
 
@@ -51,8 +53,23 @@ async def fetch_documentation(
 ) -> str:
     """Fetch and index documentation from a URL"""
     try:
+        # Start the WebSocket server in a separate task
+        try:
+            from services import websocket_server
+            # Non-blocking start of WebSocket server
+            asyncio.create_task(websocket_server.start_server())
+        except Exception as e:
+            print(f"Warning: Could not start WebSocket server: {str(e)}")
+        
+        # Create dashboard URL and open in browser
+        import webbrowser
+        dashboard_url = f"file://{os.path.abspath(os.path.join(os.path.dirname(__file__), 'dashboard', 'index.html'))}"
+        print(f"\nOpening Progress Dashboard: {dashboard_url}\n")
+        # Open the dashboard in the default web browser
+        webbrowser.open(dashboard_url)
+        
         async with DocumentCrawler() as crawler:
-            # Use the crawl method which properly handles URL processing
+            # Use the crawl method
             result = await crawler.crawl(
                 url=url,
                 recursive=recursive,

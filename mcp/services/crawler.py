@@ -1,7 +1,7 @@
 import trafilatura
 import asyncio
 import traceback
-from typing import List, Optional, Dict, Set, Tuple
+from typing import List, Optional, Dict, Set, Tuple, Any
 from ratelimit import limits, sleep_and_retry
 from bs4 import BeautifulSoup
 import httpx
@@ -12,6 +12,7 @@ import json
 import logging
 import datetime
 from urllib.parse import urljoin, urlparse
+from . import websocket_server
 
 # Set up file-based logging
 log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
@@ -326,20 +327,39 @@ class DocumentCrawler:
         # Track all discovered URLs for reporting
         all_discovered_urls = set([url])
         
+        # Start WebSocket server if not already running
+        try:
+            # Create task to start WebSocket server (non-blocking)
+            ws_server_task = asyncio.create_task(
+                websocket_server.start_server()
+            )
+            logger.info("WebSocket server task created")
+        except Exception as e:
+            logger.error(f"Error starting WebSocket server: {str(e)}")
+        
         while urls_to_process:
-            # Yield current progress
-            progress_update = {
-                "status": "processing",
-                "urls_processed": len(processed_urls),  # This will be 0 initially
-                "urls_discovered": len(all_discovered_urls),
-                "chunks_processed": self.chunks_processed,
-                "chunks_total": self.chunks_total or 1  # Avoid division by zero
-            }
-            logger.info(f"Progress update: {json.dumps(progress_update)}")
-            yield progress_update
-            
             current_url, depth = urls_to_process.pop(0)
             logger.info(f"Processing URL at depth {depth}: {current_url}")
+            
+            # Prepare progress update
+            progress_update = {
+                "status": "processing",
+                "urls_processed": len(processed_urls),
+                "urls_discovered": len(all_discovered_urls),
+                "chunks_processed": self.chunks_processed,
+                "chunks_total": self.chunks_total or 1,  # Avoid division by zero
+                "current_url": current_url
+            }
+            
+            # Send progress update to WebSocket clients
+            try:
+                await websocket_server.update_progress(progress_update)
+            except Exception as e:
+                logger.error(f"Error updating WebSocket progress: {str(e)}")
+            
+            # Yield progress for MCP
+            logger.info(f"Progress update: {json.dumps(progress_update)}")
+            yield progress_update
             
             if current_url in processed_urls:
                 logger.info(f"Skipping already processed URL: {current_url}")
@@ -351,6 +371,14 @@ class DocumentCrawler:
                 processed_urls.add(current_url)
                 logger.info(f"Successfully processed {current_url}")
                 logger.info(f"Total processed URLs: {len(processed_urls)}")
+                
+                # Update progress with the newly processed URL
+                progress_update["urls_processed"] = len(processed_urls)
+                progress_update["urls_list"] = list(processed_urls)
+                try:
+                    await websocket_server.update_progress(progress_update)
+                except Exception as e:
+                    logger.error(f"Error updating WebSocket progress: {str(e)}")
                 
                 # Handle recursive crawling
                 if recursive and depth < max_depth:
@@ -380,8 +408,16 @@ class DocumentCrawler:
             "urls_discovered": len(all_discovered_urls),
             "chunks_processed": self.chunks_processed,
             "chunks_total": self.chunks_total,
-            "urls_list": list(processed_urls)
+            "urls_list": list(processed_urls),
+            "current_url": ""
         }
+        
+        # Send final update to WebSocket clients
+        try:
+            await websocket_server.update_progress(final_update)
+        except Exception as e:
+            logger.error(f"Error updating WebSocket progress: {str(e)}")
+            
         logger.info(f"Final progress update: {json.dumps(final_update)}")
         yield final_update
 
@@ -394,9 +430,20 @@ class DocumentCrawler:
     ):
         """
         Crawl documentation from a URL and return final results
+        
+        Parameters:
+        - url: URL to crawl
+        - recursive: Whether to crawl linked pages
+        - max_depth: Maximum depth for recursive crawling
+        - ctx: MCP context for progress reporting
         """
         last_result = None
-        async for result in self.crawl_with_progress(url, recursive, max_depth, ctx):
+        async for result in self.crawl_with_progress(
+            url=url,
+            recursive=recursive,
+            max_depth=max_depth,
+            ctx=ctx
+        ):
             last_result = result
             if result["status"] == "complete":
                 return result

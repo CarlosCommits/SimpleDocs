@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SimpleDocs Crawler Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <h1>SimpleDocs Crawler Dashboard</h1>
+            <div class="status-container">
+                <span class="status-label">Status:</span>
+                <span id="status-value" class="status-idle">Idle</span>
+            </div>
+        </header>
+
+        <div class="dashboard-grid">
+            <!-- Progress Overview -->
+            <section class="card progress-overview">
+                <h2>Progress Overview</h2>
+                <div class="progress-container">
+                    <div class="progress-label">
+                        <span>Activity:</span>
+                        <span id="activity-indicator" class="activity-indicator">Idle</span>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div id="activity-bar" class="activity-bar"></div>
+                    </div>
+                </div>
+                <div class="elapsed-time-container">
+                    <div class="elapsed-label">Elapsed Time:</div>
+                    <div id="elapsed-time" class="elapsed-time">00:00:00</div>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">URLs Processed</div>
+                        <div id="urls-processed" class="stat-value">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">URLs Discovered</div>
+                        <div id="urls-discovered" class="stat-value">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Chunks Processed</div>
+                        <div id="chunks-processed" class="stat-value">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Total Chunks</div>
+                        <div id="chunks-total" class="stat-value">0</div>
+                    </div>
+                </div>
+                <div class="current-url-container">
+                    <div class="stat-label">Current URL:</div>
+                    <div id="current-url" class="current-url">-</div>
+                </div>
+            </section>
+
+            <!-- URL List -->
+            <section class="card url-list">
+                <h2>Processed URLs</h2>
+                <div class="url-list-container">
+                    <ul id="url-list"></ul>
+                </div>
+            </section>
+
+            <!-- Controls -->
+            <section class="card controls">
+                <h2>Controls</h2>
+                <div class="button-container">
+                    <button id="reset-button" class="button">Reset Progress</button>
+                    <button id="refresh-button" class="button">Refresh Data</button>
+                </div>
+                <div class="connection-status">
+                    <span class="status-label">Connection:</span>
+                    <span id="connection-status" class="status-disconnected">Disconnected</span>
+                </div>
+            </section>
+        </div>
+
+        <footer>
+            <p>SimpleDocs Crawler Dashboard | <span id="current-time"></span></p>
+        </footer>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
