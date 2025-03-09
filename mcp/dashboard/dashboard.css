@@ -77,8 +77,18 @@ h2 {
     color: var(--secondary-color);
 }
 
-.status-processing {
+.status-crawling {
     color: var(--primary-color);
+    animation: pulse 1.5s infinite;
+}
+
+.status-scraping {
+    color: var(--warning-color);
+    animation: pulse 1.5s infinite;
+}
+
+.status-embedding {
+    color: var(--success-color);
     animation: pulse 1.5s infinite;
 }
 
@@ -128,6 +138,14 @@ h2 {
     display: flex;
     justify-content: space-between;
     margin-bottom: 5px;
+    align-items: center;
+}
+
+.batch-info {
+    font-size: 12px;
+    color: #666;
+    margin-left: 10px;
+    font-style: italic;
 }
 
 .progress-bar-container {

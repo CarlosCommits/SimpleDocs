@@ -121,13 +121,27 @@ document.addEventListener('DOMContentLoaded', function() {
             statusValue.className = `status-${data.status}`;
             activityIndicator.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
             
+            // Update batch size information
+            const scrapeBatchSize = document.getElementById('scrape-batch-size');
+            const embedBatchSize = document.getElementById('embed-batch-size');
+            if (scrapeBatchSize && data.scrape_batch_size) {
+                scrapeBatchSize.textContent = data.scrape_batch_size;
+            }
+            if (embedBatchSize && data.embed_batch_size) {
+                embedBatchSize.textContent = data.embed_batch_size;
+            }
+            
             // Update status details based on phase
             if (data.status === 'crawling') {
                 statusDetails.textContent = `Discovering URLs (${data.urls_crawled || 0}/${data.urls_discovered || 0})`;
                 startElapsedTimeCounter();
                 activityBar.style.display = 'block';
             } else if (data.status === 'scraping') {
-                statusDetails.textContent = `Processing content (${data.urls_fully_processed || 0}/${data.urls_discovered || 0})`;
+                statusDetails.textContent = `Scraping content in batches of ${data.scrape_batch_size || 30} (${data.urls_fully_processed || 0}/${data.urls_discovered || 0})`;
+                startElapsedTimeCounter();
+                activityBar.style.display = 'block';
+            } else if (data.status === 'embedding') {
+                statusDetails.textContent = `Generating embeddings in batches of ${data.embed_batch_size || 20} (${data.chunks_processed || 0}/${data.chunks_total || 0})`;
                 startElapsedTimeCounter();
                 activityBar.style.display = 'block';
             } else if (data.status === 'complete' || data.status === 'idle') {

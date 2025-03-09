@@ -239,7 +239,7 @@ class DocumentCrawler:
 
     async def crawl_with_progress(self, url: str, recursive: bool = False, max_depth: int = 1, ctx=None):
         """
-        Crawl documentation from a URL with progress updates, then scrape all URLs simultaneously
+        Crawl documentation from a URL with progress updates, then scrape URLs in batches
         """
         logger.info(f"\n=== Starting crawl of {url} ===")
         logger.info(f"Settings: recursive={recursive}, max_depth={max_depth}")
@@ -255,6 +255,8 @@ class DocumentCrawler:
                 "chunks_total": 0,
                 "current_url": url,
                 "urls_list": [],
+                "scrape_batch_size": self.max_concurrent_scrapes,  # Add batch size information
+                "embed_batch_size": 20,  # Add embedding batch size information
                 "last_updated": datetime.datetime.now().isoformat()
             }
             await websocket_server.update_progress(initial_progress)
@@ -363,71 +365,122 @@ class DocumentCrawler:
             yield progress_update
             current_depth += 1
 
-        # Phase 2: Scraping - Process all URLs in parallel
+        # Phase 2: Scraping - Process URLs in batches
         logger.info("Starting scraping phase")
         self.chunks_processed = 0
         self.chunks_total = 0
 
-        # Semaphore to limit concurrent scrapes
-        semaphore = asyncio.Semaphore(self.max_concurrent_scrapes)
-
-        async def bounded_process_url(url: str, parent_url: Optional[str] = None):
-            async with semaphore:
-                try:
-                    logger.info(f"Starting to process URL: {url}")
-                    success, doc_data = await self._process_url(url, parent_url, ctx)
-                    
-                    if success:
-                        logger.info(f"Successfully processed URL: {url}")
-                        return True, doc_data
-                    else:
-                        logger.error(f"Failed to process URL: {url} - Content extraction failed")
-                        # Log detailed information about the failed URL
-                        html = self.html_cache.get(url)
-                        if html:
-                            logger.debug(f"HTML content length for failed URL {url}: {len(html)}")
-                            # Check if there's a title
-                            try:
-                                soup = BeautifulSoup(html, 'lxml')
-                                title = soup.title.string if soup.title else "No title found"
-                                logger.debug(f"Title of failed URL {url}: {title}")
-                            except Exception as e:
-                                logger.error(f"Error parsing HTML for failed URL {url}: {str(e)}")
-                        else:
-                            logger.error(f"No HTML content cached for failed URL {url}")
-                        return False, None
-                except Exception as e:
-                    logger.error(f"Unexpected error processing URL {url}: {str(e)}")
-                    logger.error(f"Stack trace for {url}: {traceback.format_exc()}")
-                    return False, None
-
-        # Create tasks for all URLs with pattern-based parent URLs
-        tasks = []
-        for url in all_urls_to_scrape:
-            # Determine parent URL based on URL pattern
-            parent_url = self._get_parent_url(url)
-            logger.debug(f"Determined parent URL for {url}: {parent_url}")
-            tasks.append(bounded_process_url(url, parent_url))
-            
-        # Process URLs and collect document data
-        logger.info(f"Processing {len(tasks)} URLs for content extraction")
+        # Process URLs in batches for scraping
+        all_urls_list = list(all_urls_to_scrape)
+        scrape_batch_size = self.max_concurrent_scrapes
         document_batch = []
-        batch_size = 20  # Process 20 documents at a time
+        embed_batch_size = 20  # Process 20 documents at a time for embedding
         
-        # Process all URLs and collect their document data
-        results = await asyncio.gather(*tasks)
-        for success, doc_data in results:
-            if success and doc_data:
-                document_batch.append(doc_data)
+        # Update progress to show we're starting the scraping phase
+        await websocket_server.update_progress({
+            "status": "scraping",
+            "current_url": f"Processing URLs in batches of {scrape_batch_size}"
+        })
+        
+        # Process URLs in batches
+        for i in range(0, len(all_urls_list), scrape_batch_size):
+            batch_urls = all_urls_list[i:i+scrape_batch_size]
+            logger.info(f"Processing batch {i//scrape_batch_size + 1}/{(len(all_urls_list) + scrape_batch_size - 1)//scrape_batch_size} with {len(batch_urls)} URLs")
+            
+            # Update progress to show which batch we're processing
+            await websocket_server.update_progress({
+                "current_url": f"Scraping batch {i//scrape_batch_size + 1}/{(len(all_urls_list) + scrape_batch_size - 1)//scrape_batch_size}"
+            })
+            
+            # Create tasks for this batch of URLs
+            batch_tasks = []
+            for url in batch_urls:
+                # Determine parent URL based on URL pattern
+                parent_url = self._get_parent_url(url)
+                logger.debug(f"Determined parent URL for {url}: {parent_url}")
                 
-        # Process document batches
+                # Create task to process this URL
+                async def process_url_task(url, parent_url):
+                    try:
+                        logger.info(f"Starting to process URL: {url}")
+                        success, doc_data = await self._process_url(url, parent_url, ctx)
+                        
+                        if success:
+                            logger.info(f"Successfully processed URL: {url}")
+                            return True, doc_data
+                        else:
+                            logger.error(f"Failed to process URL: {url} - Content extraction failed")
+                            # Log detailed information about the failed URL
+                            html = self.html_cache.get(url)
+                            if html:
+                                logger.debug(f"HTML content length for failed URL {url}: {len(html)}")
+                                # Check if there's a title
+                                try:
+                                    soup = BeautifulSoup(html, 'lxml')
+                                    title = soup.title.string if soup.title else "No title found"
+                                    logger.debug(f"Title of failed URL {url}: {title}")
+                                except Exception as e:
+                                    logger.error(f"Error parsing HTML for failed URL {url}: {str(e)}")
+                            else:
+                                logger.error(f"No HTML content cached for failed URL {url}")
+                            return False, None
+                    except Exception as e:
+                        logger.error(f"Unexpected error processing URL {url}: {str(e)}")
+                        logger.error(f"Stack trace for {url}: {traceback.format_exc()}")
+                        return False, None
+                
+                batch_tasks.append(process_url_task(url, parent_url))
+            
+            # Process this batch of URLs concurrently
+            batch_results = await asyncio.gather(*batch_tasks)
+            
+            # Collect successful results from this batch
+            batch_successful = 0
+            for success, doc_data in batch_results:
+                if success and doc_data:
+                    document_batch.append(doc_data)
+                    batch_successful += 1
+                    fully_processed_urls.add(doc_data["url"])
+            
+            # Update progress after processing this batch
+            await websocket_server.update_progress({
+                "urls_fully_processed": len(fully_processed_urls),
+                "current_url": f"Completed scraping batch {i//scrape_batch_size + 1}/{(len(all_urls_list) + scrape_batch_size - 1)//scrape_batch_size} ({batch_successful}/{len(batch_urls)} successful)"
+            })
+            
+            logger.info(f"Completed batch {i//scrape_batch_size + 1}: {batch_successful}/{len(batch_urls)} URLs successfully processed")
+            
+            # Yield progress update
+            progress_update = {
+                "status": "scraping",
+                "urls_crawled": len(crawled_urls),
+                "urls_fully_processed": len(fully_processed_urls),
+                "urls_discovered": len(all_urls_to_scrape),
+                "chunks_processed": self.chunks_processed,
+                "chunks_total": len(document_batch),
+                "current_url": f"Completed scraping batch {i//scrape_batch_size + 1}/{(len(all_urls_list) + scrape_batch_size - 1)//scrape_batch_size}"
+            }
+            yield progress_update
+                
+        # Process document batches for embedding
         if document_batch:
-            logger.info(f"Processing {len(document_batch)} documents in batches of {batch_size}")
+            logger.info(f"Processing {len(document_batch)} documents in batches of {embed_batch_size} for embedding")
             self.chunks_total = len(document_batch)
             
-            # Process in batches
-            for i in range(0, len(document_batch), batch_size):
-                batch = document_batch[i:i+batch_size]
+            # Update progress to show we're starting the embedding phase
+            await websocket_server.update_progress({
+                "status": "embedding",
+                "current_url": f"Generating embeddings in batches of {embed_batch_size}"
+            })
+            
+            # Process in batches for embedding
+            for i in range(0, len(document_batch), embed_batch_size):
+                batch = document_batch[i:i+embed_batch_size]
+                
+                # Update progress to show which embedding batch we're processing
+                await websocket_server.update_progress({
+                    "current_url": f"Embedding batch {i//embed_batch_size + 1}/{(len(document_batch) + embed_batch_size - 1)//embed_batch_size}"
+                })
                 
                 # Extract prepared content for embedding
                 prepared_contents = [doc["prepared_content"] for doc in batch]
@@ -452,21 +505,20 @@ class DocumentCrawler:
                         if success:
                             successful_docs += 1
                             self.chunks_processed += 1
-                            fully_processed_urls.add(doc["url"])
                         else:
                             logger.error(f"Failed to store document for URL: {doc['url']}")
                     else:
                         logger.error(f"Failed to generate embedding for URL: {doc['url']}")
                 
-                # Update progress after each batch
+                # Update progress after each embedding batch
                 progress_update = {
-                    "status": "scraping",
+                    "status": "embedding",
                     "urls_crawled": len(crawled_urls),
                     "urls_fully_processed": len(fully_processed_urls),
                     "urls_discovered": len(all_urls_to_scrape),
                     "chunks_processed": self.chunks_processed,
                     "chunks_total": self.chunks_total,
-                    "current_url": f"Processed batch {i//batch_size + 1}/{(len(document_batch) + batch_size - 1)//batch_size}"
+                    "current_url": f"Completed embedding batch {i//embed_batch_size + 1}/{(len(document_batch) + embed_batch_size - 1)//embed_batch_size} ({successful_docs}/{len(batch)} successful)"
                 }
                 
                 try:
@@ -474,7 +526,7 @@ class DocumentCrawler:
                 except Exception as e:
                     logger.error(f"Error updating WebSocket progress: {str(e)}")
                 
-                logger.info(f"Processed batch {i//batch_size + 1}: {successful_docs}/{len(batch)} documents successful")
+                logger.info(f"Processed embedding batch {i//embed_batch_size + 1}: {successful_docs}/{len(batch)} documents successful")
                 yield progress_update
 
         # Final progress update

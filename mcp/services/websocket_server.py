@@ -40,6 +40,8 @@ class ProgressWebSocketServer:
             "chunks_total": 0,
             "current_url": "",
             "urls_list": [],
+            "scrape_batch_size": 30,  # Default batch size for scraping
+            "embed_batch_size": 20,   # Default batch size for embedding
             "last_updated": datetime.now().isoformat()
         }
         
