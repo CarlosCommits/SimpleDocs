@@ -83,8 +83,12 @@ class SupabaseClient:
         Returns a dict with status information: {'success': bool, 'is_new': bool}
         """
         try:
+            # Get the URL to use for metadata extraction
+            # If this is a chunk, use the original URL for metadata extraction if available
+            metadata_url = document.get("original_url", document["url"])
+            
             # Extract metadata from URL
-            metadata = self._extract_metadata(document["url"])
+            metadata = self._extract_metadata(metadata_url)
             
             # Check if document exists and if content has changed
             existing_doc = self.client.table('documents').select('content').eq('url', document["url"]).execute()
@@ -95,7 +99,7 @@ class SupabaseClient:
             
             # If document exists but content has changed, or document doesn't exist
             doc_data = {
-                "url": document["url"],
+                "url": document["url"],  # This may include the chunk identifier
                 "title": document.get("title"),
                 "content": document["content"],
                 "embedding": document["embedding"],

@@ -13,6 +13,7 @@ import logging
 import datetime
 from urllib.parse import urljoin, urlparse
 from . import websocket_server
+import tiktoken
 
 # Set up file-based logging with robust error handling
 try:
@@ -51,6 +52,54 @@ except Exception as e:
 
 ONE_MINUTE = 60
 MAX_REQUESTS = int(os.getenv("CRAWLER_RATE_LIMIT", "300"))
+
+def count_tokens(text: str) -> int:
+    """Count the number of tokens in a text string using tiktoken."""
+    try:
+        # Use cl100k_base encoding (used by text-embedding-ada-002)
+        encoding = tiktoken.get_encoding("cl100k_base")
+        tokens = encoding.encode(text)
+        return len(tokens)
+    except Exception as e:
+        logger.error(f"Error counting tokens: {str(e)}")
+        # Return a conservative estimate if tiktoken fails
+        return len(text) // 3  # Rough approximation
+
+def split_content_by_token_limit(title: str, content: str, max_tokens: int = 8100) -> List[str]:
+    """
+    Split content into chunks based on token limit.
+    Each chunk will include the title for better semantic search.
+    """
+    # Prepare title prefix that will be added to each chunk
+    title_prefix = f"Title: {title}\n\n"
+    title_tokens = count_tokens(title_prefix)
+    
+    # Calculate available tokens for content in each chunk
+    available_tokens = max_tokens - title_tokens
+    
+    # If content is small enough, return as a single chunk
+    full_content = title_prefix + content
+    content_tokens = count_tokens(full_content)
+    
+    if content_tokens <= max_tokens:
+        return [full_content]
+    
+    # Otherwise, split content into chunks
+    encoding = tiktoken.get_encoding("cl100k_base")
+    content_token_ids = encoding.encode(content)
+    
+    chunks = []
+    for i in range(0, len(content_token_ids), available_tokens):
+        # Get a slice of tokens for this chunk
+        chunk_token_ids = content_token_ids[i:i+available_tokens]
+        # Decode tokens back to text
+        chunk_content = encoding.decode(chunk_token_ids)
+        # Add title prefix to each chunk
+        full_chunk = title_prefix + chunk_content
+        chunks.append(full_chunk)
+    
+    logger.info(f"Split content with {content_tokens} tokens into {len(chunks)} chunks")
+    return chunks
 
 class DocumentCrawler:
     def __init__(self, doc_patterns: List[str] = None, max_concurrent_scrapes: int = 30):
@@ -204,7 +253,7 @@ class DocumentCrawler:
             return f"Title: {title}\n\nContent: {content}"
         return content
 
-    async def _process_url(self, url: str, parent_url: Optional[str] = None, ctx=None) -> Tuple[bool, Dict]:
+    async def _process_url(self, url: str, parent_url: Optional[str] = None, ctx=None) -> Tuple[bool, List[Dict]]:
         """Process a single URL and return success status and document data"""
         try:
             logger.debug(f"Processing URL: {url}")
@@ -215,26 +264,57 @@ class DocumentCrawler:
                 html = await self._fetch_url(url)
                 if not html:
                     logger.error(f"Failed to fetch content from {url}")
-                    return False, {}
+                    return False, []
                 self.html_cache[url] = html
 
             # Extract content
             extracted = self._extract_content(html)
             if not extracted:
                 logger.error(f"Failed to extract content from {url}")
-                return False, {}
+                return False, []
 
-            # Prepare content by combining title and content for better search results
-            prepared_content = self._prepare_content(extracted["title"], extracted["content"])
+            title = extracted["title"] or "Untitled Document"
+            content = extracted["content"]
             
-            # Return the document data for batch processing
-            return True, {
-                "url": url,
-                "title": extracted["title"],
-                "content": extracted["content"],
-                "prepared_content": prepared_content,
-                "parent_url": parent_url
-            }
+            # Count tokens in the full content
+            full_content = f"Title: {title}\n\nContent: {content}"
+            token_count = count_tokens(full_content)
+            
+            # Check if content needs to be split
+            if token_count > 8100:  # Using 8.1k as the limit
+                logger.info(f"Content from {url} has {token_count} tokens, exceeding the limit. Splitting into chunks.")
+                
+                # Split content into chunks, each with the title included
+                content_chunks = split_content_by_token_limit(title, content)
+                
+                # Create document data for each chunk
+                documents = []
+                for i, chunk in enumerate(content_chunks):
+                    # Create a unique URL for each chunk by appending a chunk identifier
+                    chunk_url = f"{url}#chunk{i+1}" if i > 0 else url
+                    logger.info(f"Created chunk {i+1}/{len(content_chunks)} for {url} with {count_tokens(chunk)} tokens")
+                    documents.append({
+                        "url": chunk_url,  # Unique URL for each chunk
+                        "title": title,
+                        "content": content,  # Original content stays the same
+                        "prepared_content": chunk,  # This is what gets embedded
+                        "parent_url": parent_url,
+                        "chunk_index": i,  # For logging/tracking only
+                        "total_chunks": len(content_chunks),  # For logging/tracking only
+                        "original_url": url  # Store the original URL for reference
+                    })
+                return True, documents
+            else:
+                # No need to split, return as a single document
+                return True, [{
+                    "url": url,
+                    "title": title,
+                    "content": content,
+                    "prepared_content": full_content,
+                    "parent_url": parent_url,
+                    "chunk_index": 0,
+                    "total_chunks": 1
+                }]
         except Exception as e:
             logger.error(f"Error processing {url}: {str(e)}")
             logger.error(f"Stack trace: {traceback.format_exc()}")
@@ -449,11 +529,15 @@ class DocumentCrawler:
             
             # Collect successful results from this batch
             batch_successful = 0
-            for success, doc_data in batch_results:
-                if success and doc_data:
-                    document_batch.append(doc_data)
+            for success, doc_data_list in batch_results:
+                if success and doc_data_list:
+                    # doc_data_list can contain multiple chunks for a single URL
+                    for doc_data in doc_data_list:
+                        document_batch.append(doc_data)
                     batch_successful += 1
-                    fully_processed_urls.add(doc_data["url"])
+                    # Add the original URL to fully_processed_urls, not the chunked URL
+                    original_url = doc_data_list[0].get("original_url", doc_data_list[0]["url"])
+                    fully_processed_urls.add(original_url)  # Add URL only once
             
             # Update progress after processing this batch
             await websocket_server.update_progress({
@@ -506,6 +590,11 @@ class DocumentCrawler:
                 successful_docs = 0
                 for j, (doc, embedding) in enumerate(zip(batch, embeddings)):
                     if embedding:
+                        # Add chunk information to logging
+                        chunk_info = ""
+                        if doc.get("total_chunks", 1) > 1:
+                            chunk_info = f" (chunk {doc.get('chunk_index', 0)+1}/{doc.get('total_chunks', 1)})"
+                        
                         # Store document with embedding
                         result = await self.supabase.store_document({
                             "url": doc["url"],
@@ -519,18 +608,18 @@ class DocumentCrawler:
                             successful_docs += 1
                             self.chunks_processed += 1
                             
-                            # Track document status
+                            # Track document status with chunk information
                             if result["is_new"]:
                                 self.urls_new += 1
-                                logger.info(f"Added new document: {doc['url']}")
+                                logger.info(f"Added new document: {doc['url']}{chunk_info}")
                             elif result["is_updated"]:
                                 self.urls_updated += 1
-                                logger.info(f"Updated existing document: {doc['url']}")
+                                logger.info(f"Updated existing document: {doc['url']}{chunk_info}")
                             else:
                                 self.urls_unchanged += 1
-                                logger.info(f"Document unchanged: {doc['url']}")
+                                logger.info(f"Document unchanged: {doc['url']}{chunk_info}")
                         else:
-                            logger.error(f"Failed to store document for URL: {doc['url']}")
+                            logger.error(f"Failed to store document for URL: {doc['url']}{chunk_info}")
                     else:
                         logger.error(f"Failed to generate embedding for URL: {doc['url']}")
                 
@@ -564,7 +653,7 @@ class DocumentCrawler:
             "urls_new": self.urls_new,
             "urls_updated": self.urls_updated,
             "urls_unchanged": self.urls_unchanged,
-            "urls_list": list(fully_processed_urls),
+            "urls_list": list(fully_processed_urls),  # This already contains original URLs, not chunked URLs
             "current_url": ""
         }
         try:
