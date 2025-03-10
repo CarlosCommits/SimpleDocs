@@ -17,8 +17,8 @@ class FetchRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
-    limit: Optional[int] = 3
-    min_score: Optional[float] = 0.81
+    limit: Optional[int] = 2
+    min_score: Optional[float] = 0.8
 
 class DocumentResult(BaseModel):
     content: str
@@ -86,23 +86,58 @@ async def fetch_documentation(
 async def search_documentation(
     query: str,
     limit: int = 3,
-    min_score: float = 0.81
+    min_score: float = 0.8
 ) -> str:
     """Search through indexed documentation"""
     try:
-        results = await search_client.search(
-            query=query,
-            limit=limit,
-            min_score=min_score
-        )
+        print(f"Starting search for query: '{query}' with min_score: {min_score}")
+        
+        # Search for documents
+        try:
+            results = await search_client.search(
+                query=query,
+                limit=limit,
+                min_score=min_score
+            )
+            print(f"Search completed. Found {len(results) if results else 0} results.")
+        except Exception as search_error:
+            print(f"Error during search operation: {str(search_error)}")
+            return f"Error during search operation: {str(search_error)}"
+        
+        # Process results
         if not results:
+            print("No matching documentation found.")
             return "No matching documentation found."
-        formatted_results = [
-            f"{i}. [Score: {result['similarity']:.2f}]\n{result['content']}\nSource: {result['url']}\n"
-            for i, result in enumerate(results, 1)
-        ]
-        return f"Found {len(results)} results:\n\n" + "\n".join(formatted_results)
+        
+        # Format results
+        try:
+            formatted_results = []
+            for i, result in enumerate(results, 1):
+                try:
+                    formatted_result = f"{i}. [Score: {result['similarity']:.2f}]\n{result['content']}\nSource: {result['url']}\n"
+                    formatted_results.append(formatted_result)
+                except KeyError as key_error:
+                    print(f"Missing key in result {i}: {str(key_error)}")
+                    formatted_results.append(f"{i}. [Error formatting result: missing key {str(key_error)}]")
+                except Exception as format_error:
+                    print(f"Error formatting result {i}: {str(format_error)}")
+                    formatted_results.append(f"{i}. [Error formatting result: {str(format_error)}]")
+            
+            response = f"Found {len(results)} results:\n\n" + "\n".join(formatted_results)
+            print(f"Successfully formatted {len(formatted_results)} results.")
+            return response
+        except Exception as format_error:
+            print(f"Error formatting search results: {str(format_error)}")
+            # Return a simplified response with just the URLs
+            try:
+                simple_results = [f"{i}. {result.get('url', 'No URL')} (Score: {result.get('similarity', 0):.2f})" 
+                                 for i, result in enumerate(results, 1)]
+                return f"Found {len(results)} results (simplified due to formatting error):\n\n" + "\n".join(simple_results)
+            except Exception as simple_format_error:
+                print(f"Error creating simplified response: {str(simple_format_error)}")
+                return f"Found {len(results)} results, but encountered an error formatting them: {str(format_error)}"
     except Exception as e:
+        print(f"Unexpected error in search_documentation: {str(e)}")
         raise Exception(f"Error searching documentation: {str(e)}")
 
 @mcp.tool()

@@ -35,18 +35,18 @@ try:
     logger.setLevel(logging.DEBUG)
     logger.addHandler(file_handler)
     
-    # Add a console handler to see logs in terminal too
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    # # Add a console handler to see logs in terminal too
+    # console_handler = logging.StreamHandler()
+    # console_handler.setLevel(logging.INFO)
+    # console_handler.setFormatter(formatter)
+    # logger.addHandler(console_handler)
     
     logger.info(f"Crawler logging initialized. Log file: {log_file}")
     print(f"Crawler log file: {log_file}")  # Print to console for visibility
 except Exception as e:
     print(f"Error setting up logging: {str(e)}")
     # Set up a basic console logger as fallback
-    logging.basicConfig(level=logging.INFO)
+    #logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("crawler")
     logger.warning(f"Failed to set up file logging. Using console logging only. Error: {str(e)}")
 
@@ -440,7 +440,8 @@ class DocumentCrawler:
                             url_parents[link] = source_url
                             logger.debug(f"Set parent for {link} to {source_url}")
                         else:
-                            logger.debug(f"Skipping already queued/crawled link: {link}")
+                            # logger.debug(f"Skipping already queued/crawled link: {link}")
+                            pass
             
             # Update progress after processing this wave
             progress_update = {

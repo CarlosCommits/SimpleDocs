@@ -9,10 +9,10 @@ from typing import Dict, List, Set, Any, Optional
 from datetime import datetime
 
 # Configure logging
-logging.basicConfig(
+""" logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
-)
+) """
 logger = logging.getLogger("websocket_server")
 
 # WebSocket server configuration
@@ -54,7 +54,7 @@ class ProgressWebSocketServer:
             if os.path.exists(PROGRESS_FILE):
                 with open(PROGRESS_FILE, 'r') as f:
                     self.current_progress = json.load(f)
-                logger.info(f"Loaded progress from {PROGRESS_FILE}")
+                #logger.info(f"Loaded progress from {PROGRESS_FILE}")
         except Exception as e:
             logger.error(f"Error loading progress file: {str(e)}")
             
@@ -64,20 +64,20 @@ class ProgressWebSocketServer:
             self.current_progress["last_updated"] = datetime.now().isoformat()
             with open(PROGRESS_FILE, 'w') as f:
                 json.dump(self.current_progress, f, indent=2)
-            logger.info(f"Saved progress to {PROGRESS_FILE}")
+            #logger.info(f"Saved progress to {PROGRESS_FILE}")
         except Exception as e:
             logger.error(f"Error saving progress file: {str(e)}")
     
     async def register(self, websocket: websockets.WebSocketServerProtocol) -> None:
         """Register a new client"""
         self.clients.add(websocket)
-        logger.info(f"Client connected. Total clients: {len(self.clients)}")
+        #logger.info(f"Client connected. Total clients: {len(self.clients)}")
         await websocket.send(json.dumps(self.current_progress))
     
     async def unregister(self, websocket: websockets.WebSocketServerProtocol) -> None:
         """Unregister a client"""
         self.clients.remove(websocket)
-        logger.info(f"Client disconnected. Total clients: {len(self.clients)}")
+        #logger.info(f"Client disconnected. Total clients: {len(self.clients)}")
     
     async def broadcast(self, message: Dict[str, Any]) -> None:
         """Broadcast message to all connected clients"""
@@ -119,9 +119,9 @@ class ProgressWebSocketServer:
     
     async def start(self) -> None:
         """Start the WebSocket server"""
-        logger.info(f"Starting WebSocket server on {self.host}:{self.port}")
+        #logger.info(f"Starting WebSocket server on {self.host}:{self.port}")
         self.server = await websockets.serve(self.handle_client, self.host, self.port)
-        logger.info(f"WebSocket server running at ws://{self.host}:{self.port}")
+        #logger.info(f"WebSocket server running at ws://{self.host}:{self.port}")
         await self.server.wait_closed()
     
     async def stop(self) -> None:
@@ -129,7 +129,7 @@ class ProgressWebSocketServer:
         if self.server:
             self.server.close()
             await self.server.wait_closed()
-            logger.info("WebSocket server stopped")
+            #logger.info("WebSocket server stopped")
 
 # Singleton instance
 _server_instance: Optional[ProgressWebSocketServer] = None
@@ -159,7 +159,7 @@ async def update_progress(progress: Dict[str, Any]) -> None:
     if isinstance(progress, dict) and progress.get("status") == "crawling" and "current_url" in progress:
         # Only reset if this looks like the start of a new crawl
         if progress.get("urls_crawled", 0) == 0 and progress.get("urls_fully_processed", 0) == 0:
-            logger.info("Detected new crawl starting - resetting progress")
+            #logger.info("Detected new crawl starting - resetting progress")
             # Reset all progress counters
             default_progress = server._get_default_progress()
             server.current_progress = default_progress
@@ -185,11 +185,11 @@ if __name__ == "__main__":
     
     async def shutdown(signal, loop):
         """Cleanup tasks tied to the service's shutdown."""
-        logger.info(f"Received exit signal {signal.name}...")
+        #logger.info(f"Received exit signal {signal.name}...")
         await stop_server()
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         [task.cancel() for task in tasks]
-        logger.info(f"Cancelling {len(tasks)} outstanding tasks")
+        #logger.info(f"Cancelling {len(tasks)} outstanding tasks")
         await asyncio.gather(*tasks, return_exceptions=True)
         loop.stop()
     
