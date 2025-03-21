@@ -1,6 +1,6 @@
 # SimpleDocs
 
-A powerful documentation search engine that helps you find relevant information across documentation sites. Built with Python and the Model Context Protocol (MCP), it leverages trafilatura for superior content extraction, OpenAI embeddings for semantic search, and pgvector for efficient vector storage and retrieval.
+A powerful documentation web scraper and search engine that helps you find relevant information across documentation sites. Built with Python and the Model Context Protocol (MCP), it leverages trafilatura for superior content extraction, OpenAI embeddings for semantic search, and pgvector for efficient vector storage and retrieval.
 
 ## Features
 
